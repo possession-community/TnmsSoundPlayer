@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TnmsSoundPlayer/TnmsSoundPlayer.csproj" />
+  <Project Path="TnmsSoundPlayer.Shared/TnmsSoundPlayer.Shared.csproj" />
+  <Project Path="TnmsSoundPlayerTest/TnmsSoundPlayerTest.csproj" />
+</Solution>

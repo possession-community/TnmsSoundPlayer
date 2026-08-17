@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Version>0.0.1</Version>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>TnmsSoundPlayer</RootNamespace>
+        <!-- Unsafe: reading userinfo stringtable userdata (StringTableUserData*). -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <!-- Needed so NuGet runtime assets (Concentus.dll) land in the output for deploy. -->
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="ModSharp.Sharp.Shared" Version="2.1.137" ExcludeAssets="runtime" />
+        <PackageReference Include="Concentus" Version="1.1.7" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\TnmsSoundPlayer.Shared\TnmsSoundPlayer.Shared.csproj" Private="false" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(MOD_SHARP_DIR)' != ''">
+        <Message Text="Copying the plugin files to ModSharp modules directory" Importance="High" />
+        <Copy SourceFiles="$(TargetDir)$(ProjectName).deps.json;$(TargetDir)$(ProjectName).dll;$(TargetDir)$(ProjectName).pdb;$(TargetDir)Concentus.dll" DestinationFolder="$(MOD_SHARP_DIR)\modules\$(ProjectName)\reload" />
+        <Message Text="Successfully copied the plugin files" Importance="High" />
+    </Target>
+</Project>

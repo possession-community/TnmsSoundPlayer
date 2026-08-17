@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Version>0.0.1</Version>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>TnmsSoundPlayer.Shared</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="ModSharp.Sharp.Shared" Version="2.1.137" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <Target Name="CopyShared" AfterTargets="Build" Condition="'$(MOD_SHARP_DIR)' != ''">
+        <Message Text="Copying the shared library to ModSharp shared directory" Importance="High" />
+        <Copy SourceFiles="$(TargetDir)$(ProjectName).dll;$(TargetDir)$(ProjectName).pdb" DestinationFolder="$(MOD_SHARP_DIR)\shared\$(ProjectName)" />
+        <Message Text="Successfully copied the shared library" Importance="High" />
+    </Target>
+</Project>
