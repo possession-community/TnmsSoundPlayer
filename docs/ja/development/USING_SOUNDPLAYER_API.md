@@ -29,26 +29,19 @@ ModSharp は Shared アセンブリを一度だけロードするため、自分
 
 `ISharpModuleManager` から `ITnmsSoundPlayer` を解決する。
 TnmsSoundPlayer がインターフェースを登録するのは `PostInit` なので、自分の `Init` からは取得できない。
-`OnAllModulesLoaded` で取得するか、次のように初回利用時に遅延解決する。
+`OnAllModulesLoaded` で取得する。
 
 ```csharp
-private IModSharpModuleInterface<ITnmsSoundPlayer>? _playerInterface;
-
-private ITnmsSoundPlayer? Player
-    => (_playerInterface ??= _shared.GetSharpModuleManager()
-        .GetOptionalSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity))?.Instance;
+private ITnmsSoundPlayer _player = null!;
 
 public void OnAllModulesLoaded()
-{
-    if (Player is null)
-    {
-        _logger.LogWarning("TnmsSoundPlayer が見つかりません。サウンド機能は利用できません。");
-    }
-}
+    => _player = _shared.GetSharpModuleManager()
+        .GetRequiredSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity).Instance!;
 ```
 
-インスタンスではなく `IModSharpModuleInterface<T>` をキャッシュしている。
-こうすると解決コストを一度で済ませつつ、TnmsSoundPlayer が自分より後にロードされる場合にも対応できる。
+`GetRequiredSharpModuleInterface` は TnmsSoundPlayer が入っていなければ例外を投げる。
+音を鳴らすモジュールは TnmsSoundPlayer 無しでは何もできないのだから、これでよい。
+黙って何もしないより、ロード時に落ちたほうが原因を追いやすい。
 
 ### 3. セッションを作る
 
@@ -56,7 +49,7 @@ public void OnAllModulesLoaded()
 セッションはプラグインごとのハンドルである。
 
 ```csharp
-var session = Player!.CreateSession("MyPlugin");
+var session = _player.CreateSession("MyPlugin");
 ```
 
 `CreateSession` は冪等で、同じ名前で呼べば同じセッションが返る。
@@ -70,7 +63,7 @@ var session = Player!.CreateSession("MyPlugin");
 与えないとスコアボードでボット扱いになり、アバターも表示されない。
 
 ```csharp
-Player!.SpeakerSteamId = 7656119XXXXXXXXXX;
+_player.SpeakerSteamId = 7656119XXXXXXXXXX;
 ```
 
 実在のアカウントを指す値なので、ソースコードには埋め込んでいない。
@@ -101,7 +94,7 @@ Player!.SpeakerSteamId = 7656119XXXXXXXXXX;
 ### URL を再生する
 
 ```csharp
-var session = Player!.CreateSession("MyPlugin");
+var session = _player.CreateSession("MyPlugin");
 var playback = session.PlayUrl("https://www.youtube.com/watch?v=...");
 ```
 
@@ -175,7 +168,7 @@ session.PlayUrl(url, null, new TrackReporter(_logger));
 ### 再生せずにメタデータだけ取得する
 
 ```csharp
-var meta = await Player!.NetworkService.GetMetadataAsync(url);
+var meta = await _player.NetworkService.GetMetadataAsync(url);
 _logger.LogInformation("{Title} ({Duration}) by {Uploader}", meta.Title, meta.Duration, meta.Uploader);
 ```
 
@@ -198,8 +191,8 @@ playback.Stop();
 ### プレイヤーをミュートする
 
 ```csharp
-Player!.SetHearing(client, false);      // このクライアントには一切聞こえなくなる
-Player!.SetPlayerVolume(client, 0.5f);  // 音量を下げるだけ
+_player.SetHearing(client, false);      // このクライアントには一切聞こえなくなる
+_player.SetPlayerVolume(client, 0.5f);  // 音量を下げるだけ
 ```
 
 どちらもクライアント単位のグローバル設定で、個々の再生とは独立している。
@@ -209,7 +202,7 @@ Player!.SetPlayerVolume(client, 0.5f);  // 音量を下げるだけ
 ### ツールが使える状態か確認する
 
 ```csharp
-var d = Player!.Diagnostics;
+var d = _player.Diagnostics;
 if (!d.YtdlpAvailable)
 {
     _logger.LogWarning("yt-dlp が無いため URL 再生は失敗する");

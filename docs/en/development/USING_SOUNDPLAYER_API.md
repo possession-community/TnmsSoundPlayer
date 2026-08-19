@@ -28,34 +28,26 @@ and copying your own duplicate next to your module breaks type identity.
 ### 2. Obtain the API Entry Point
 
 Resolve `ITnmsSoundPlayer` through `ISharpModuleManager`. TnmsSoundPlayer registers its interface
-in `PostInit`, so it is not resolvable from your `Init` — resolve it in `OnAllModulesLoaded`, or
-lazily on first use as below.
+in `PostInit`, so it is not resolvable from your `Init` — resolve it in `OnAllModulesLoaded`.
 
 ```csharp
-private IModSharpModuleInterface<ITnmsSoundPlayer>? _playerInterface;
-
-private ITnmsSoundPlayer? Player
-    => (_playerInterface ??= _shared.GetSharpModuleManager()
-        .GetOptionalSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity))?.Instance;
+private ITnmsSoundPlayer _player = null!;
 
 public void OnAllModulesLoaded()
-{
-    if (Player is null)
-    {
-        _logger.LogWarning("TnmsSoundPlayer not found; sound features are unavailable.");
-    }
-}
+    => _player = _shared.GetSharpModuleManager()
+        .GetRequiredSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity).Instance!;
 ```
 
-Caching the `IModSharpModuleInterface<T>` rather than the instance keeps the lookup cheap while
-still tolerating TnmsSoundPlayer loading later than your module.
+`GetRequiredSharpModuleInterface` throws when TnmsSoundPlayer is not installed, which is what you
+want: a module that plays sound has nothing useful to do without it, and failing at load is easier
+to diagnose than silently doing nothing.
 
 ### 3. Create a Session
 
 Everything you play goes through a session, which is your plugin's handle to the player.
 
 ```csharp
-var session = Player!.CreateSession("MyPlugin");
+var session = _player.CreateSession("MyPlugin");
 ```
 
 `CreateSession` is idempotent — calling it again with the same name returns the same session, so
@@ -68,7 +60,7 @@ Audio is attributed to a bot the module keeps in spectator. Give that bot a Stea
 or the scoreboard marks it as a bot and it shows no avatar:
 
 ```csharp
-Player!.SpeakerSteamId = 7656119XXXXXXXXXX;
+_player.SpeakerSteamId = 7656119XXXXXXXXXX;
 ```
 
 No id ships in the source, since it names a real account. Setting it once at startup is enough — it
@@ -99,7 +91,7 @@ Unless a member says otherwise, call it from the game thread.
 ### Play a URL
 
 ```csharp
-var session = Player!.CreateSession("MyPlugin");
+var session = _player.CreateSession("MyPlugin");
 var playback = session.PlayUrl("https://www.youtube.com/watch?v=...");
 ```
 
@@ -175,7 +167,7 @@ errors — inspect `State` and `Error` after awaiting, exactly as above.
 ### Fetch Metadata Without Playing
 
 ```csharp
-var meta = await Player!.NetworkService.GetMetadataAsync(url);
+var meta = await _player.NetworkService.GetMetadataAsync(url);
 _logger.LogInformation("{Title} ({Duration}) by {Uploader}", meta.Title, meta.Duration, meta.Uploader);
 ```
 
@@ -197,8 +189,8 @@ A paused playback still occupies the single playback slot, so queued sounds keep
 ### Mute a Player
 
 ```csharp
-Player!.SetHearing(client, false);      // this client hears nothing from the sound player
-Player!.SetPlayerVolume(client, 0.5f);  // or just quieter
+_player.SetHearing(client, false);      // this client hears nothing from the sound player
+_player.SetPlayerVolume(client, 0.5f);  // or just quieter
 ```
 
 These are global per client, independent of any individual playback, and are applied server-side
@@ -207,7 +199,7 @@ before encoding. Set `DefaultHearing` to control what newly connecting clients g
 ### Check Whether Tools Are Available
 
 ```csharp
-var d = Player!.Diagnostics;
+var d = _player.Diagnostics;
 if (!d.YtdlpAvailable)
 {
     _logger.LogWarning("yt-dlp missing; URL playback will fail");

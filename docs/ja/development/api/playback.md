@@ -60,7 +60,7 @@ Queued --> Playing <--> Paused --> Completed
 
 ```csharp
 // 自分が管理しているアカウントを使う。
-Player!.SpeakerSteamId = 7656119XXXXXXXXXX;
+_player.SpeakerSteamId = 7656119XXXXXXXXXX;
 ```
 
 値は即座に反映され、以後作成されるボットにも適用される。

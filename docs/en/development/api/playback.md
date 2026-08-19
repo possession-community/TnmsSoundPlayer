@@ -59,7 +59,7 @@ works but the scoreboard marks it as a bot and shows no avatar.
 
 ```csharp
 // Use an account you control.
-Player!.SpeakerSteamId = 7656119XXXXXXXXXX;
+_player.SpeakerSteamId = 7656119XXXXXXXXXX;
 ```
 
 The value applies immediately and is re-applied to every bot created afterwards, so setting it once

@@ -26,7 +26,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     private readonly ISharedSystem _shared;
     private readonly Dictionary<string, IClientManager.DelegateClientCommand> _commands = [];
 
-    private IModSharpModuleInterface<ITnmsSoundPlayer>? _playerInterface;
+    private ITnmsSoundPlayer _player = null!;
 
     public TnmsSoundPlayerTest(
         ISharedSystem sharedSystem, string dllPath, string sharpPath,
@@ -58,22 +58,14 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     }
 
     public void OnAllModulesLoaded()
-    {
-        if (Player is null)
-        {
-            _logger.LogWarning("TnmsSoundPlayer module interface not found; sp_* commands will report unavailable until it loads.");
-        }
-    }
+        => _player = _shared.GetSharpModuleManager()
+            .GetRequiredSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity).Instance!;
 
     private void RegisterCommand(string name, IClientManager.DelegateClientCommand callback)
     {
         _shared.GetClientManager().InstallCommandCallback(name, callback);
         _commands.Add(name, callback);
     }
-
-    private ITnmsSoundPlayer? Player
-        => (_playerInterface ??= _shared.GetSharpModuleManager()
-            .GetOptionalSharpModuleInterface<ITnmsSoundPlayer>(ITnmsSoundPlayer.Identity))?.Instance;
 
     private static void Reply(IGameClient client, string message)
         => client.ConsolePrint($"[SP] {message}\n");
@@ -112,12 +104,6 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             return ECommandAction.Stopped;
         }
 
-        if (Player is not { } player)
-        {
-            Reply(client, "TnmsSoundPlayer is not loaded.");
-            return ECommandAction.Stopped;
-        }
-
         var volume = 1.0f;
         if (command.ArgCount >= 2
             && !float.TryParse(command.GetArg(2), NumberStyles.Float, CultureInfo.InvariantCulture, out volume))
@@ -132,7 +118,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             return ECommandAction.Stopped;
         }
 
-        var session = player.CreateSession(SessionOwner);
+        var session = _player.CreateSession(SessionOwner);
         var playback = session.PlayUrl(url, new PlayOptions { Volume = volume }, new ReportToClient(client));
 
         Reply(client, $"queued: {Describe(playback)}");
@@ -157,12 +143,6 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             return ECommandAction.Stopped;
         }
 
-        if (Player is not { } player)
-        {
-            Reply(client, "TnmsSoundPlayer is not loaded.");
-            return ECommandAction.Stopped;
-        }
-
         if (!TryNormalizeUrl(command.GetArg(1), out var url))
         {
             Reply(client, "the console ate your URL after '//'. Quote it (\"https://...\"), drop the scheme (www.youtube.com/...), or use chat (!sp_meta).");
@@ -171,7 +151,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
 
         // Result is logged instead of printed to the client: the continuation runs on a
         // worker thread, and IGameClient must only be touched from the game thread.
-        player.NetworkService.GetMetadataAsync(url).ContinueWith(t =>
+        _player.NetworkService.GetMetadataAsync(url).ContinueWith(t =>
         {
             if (t.IsCompletedSuccessfully)
             {
@@ -191,13 +171,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
 
     private ECommandAction OnStop(IGameClient client, StringCommand command)
     {
-        if (Player is not { } player)
-        {
-            Reply(client, "TnmsSoundPlayer is not loaded.");
-            return ECommandAction.Stopped;
-        }
-
-        if (player.CurrentPlayback is not { } playback)
+        if (_player.CurrentPlayback is not { } playback)
         {
             Reply(client, "nothing is playing.");
             return ECommandAction.Stopped;
@@ -210,17 +184,11 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
 
     private ECommandAction OnStatus(IGameClient client, StringCommand command)
     {
-        if (Player is not { } player)
-        {
-            Reply(client, "TnmsSoundPlayer is not loaded.");
-            return ECommandAction.Stopped;
-        }
-
-        var d = player.Diagnostics;
+        var d = _player.Diagnostics;
         Reply(client, $"ffmpeg={(d.FfmpegAvailable ? d.FfmpegPath : "MISSING")} yt-dlp={(d.YtdlpAvailable ? d.YtdlpPath : "MISSING")} queue={d.QueueLength} sessions={d.ActiveSessionCount}");
-        Reply(client, player.CurrentPlayback is { } current ? $"current: {Describe(current)}" : "current: (idle)");
+        Reply(client, _player.CurrentPlayback is { } current ? $"current: {Describe(current)}" : "current: (idle)");
 
-        var queue = player.Queue;
+        var queue = _player.Queue;
         for (var i = 0; i < queue.Count; i++)
         {
             Reply(client, $"queue[{i}]: {Describe(queue[i])}");
