@@ -31,15 +31,19 @@ player, so clients can mute it and adjust its volume with the normal in-game con
 
 ## Installation
 
+Grab `TnmsSoundPlayer-<platform>.zip` from the
+[latest release](https://github.com/possession-community/TnmsSoundPlayer/releases/latest); it holds
+the `modules\` and `shared\` trees ready to merge into `%MOD_SHARP_DIR%`. To place the files by hand:
+
 1. Copy `TnmsSoundPlayer.dll`, `TnmsSoundPlayer.deps.json` and `Concentus.dll` into
    `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\`.
 2. Copy `TnmsSoundPlayer.Shared.dll` into `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\`.
    Shared assemblies belong in `shared\` only — never under `modules\`.
 3. Start the server. On first start the module downloads ffmpeg, yt-dlp and deno into
    `modules\TnmsSoundPlayer\tools\`.
-4. Set `ITnmsSoundPlayer.SpeakerSteamId` to a SteamID64 you control, from a plugin or with
-   `!sp_spk_steam <id>`. No id ships in the source, and until one is set the speaker still works
-   but the scoreboard marks it as a bot and shows no avatar.
+4. Set `ITnmsSoundPlayer.SpeakerSteamId` to a SteamID64 you control from a plugin. No id ships in
+   the source, and until one is set the speaker still works but the scoreboard marks it as a bot
+   and shows no avatar.
 
 > A module directory's `reload\` subfolder only works for a module that is **already loaded**.
 > The first deploy has to go into the module root, or the module never loads.
@@ -85,18 +89,18 @@ The bot occupies one player slot. On a server that runs at its player limit, acc
 
 ## Commands
 
-The module currently registers experimental commands for tuning the speaker bot. They are
-development tooling and will be removed once the speaker configuration is finalized. Type them in
-chat with `!`, or in console with the `ms_` prefix.
+The library itself registers no commands — it is driven entirely through its API. `TnmsSoundPlayerTest`
+is a separate, optional module that exercises the API by hand; load it only while developing. Type its
+commands in chat with `!`, or in console with the `ms_` prefix.
 
 | Command | Description |
 |---|---|
-| `sp_spk_status` | Current speaker slot, xuid, spoof id and disguise mask |
-| `sp_spk_probe` | Dump the server-side controller/pawn/userinfo state |
-| `sp_spk_bot [name]` | Request the speaker bot, or rename an existing one |
-| `sp_spk_kick` | Remove the speaker bot and stop respawning it |
-| `sp_spk_disguise <mask>` | Toggle individual disguise traits |
-| `sp_spk_name` / `sp_spk_slot` / `sp_spk_xuid` / `sp_spk_steam` | Override the bot's name and the voice attribution identity |
+| `sp_url <url> [volume]` | Play a URL, crediting the requester in the speaker name |
+| `sp_meta <url>` | Fetch metadata without playing; the result goes to the server console |
+| `sp_stop` | Stop whatever is playing |
+| `sp_status` | Tool availability, speaker identity, current playback and queue |
+| `sp_spk_name [name]` | Show or set the resting speaker name |
+| `sp_spk_steam [steamid64]` | Show or set the SteamID64 the speaker masquerades as |
 
 ## Build
 
@@ -107,15 +111,6 @@ dotnet build TnmsSoundPlayer/TnmsSoundPlayer.csproj
 With the `MOD_SHARP_DIR` environment variable set, the build copies the module to
 `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\reload\` for hot reload, and the shared assembly to
 `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\`.
-
-For a release build:
-
-```
-dotnet publish TnmsSoundPlayer/TnmsSoundPlayer.csproj -f net10.0 -r win-x64 --no-self-contained -c Release -p:DebugType=None -p:DebugSymbols=false
-```
-
-Use `-r linux-x64` for Linux servers. Before copying the output to a server, remove the assemblies
-ModSharp already ships (Microsoft.Extensions.\*, Serilog.\*, Google.Protobuf, System.Text.Json).
 
 ## Documentation
 

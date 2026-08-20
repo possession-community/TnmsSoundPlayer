@@ -30,14 +30,18 @@
 
 ## 導入
 
+[最新リリース](https://github.com/possession-community/TnmsSoundPlayer/releases/latest)から
+`TnmsSoundPlayer-<platform>.zip` を取得する。
+中身は `modules\` と `shared\` のツリーなので、そのまま `%MOD_SHARP_DIR%` にマージすればよい。
+手で配置する場合は次のとおり。
+
 1. `TnmsSoundPlayer.dll`、`TnmsSoundPlayer.deps.json`、`Concentus.dll` を
    `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\` に配置する。
 2. `TnmsSoundPlayer.Shared.dll` を `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\` に配置する。
    Shared アセンブリは `shared\` にのみ置く。`modules\` に置いてはいけない。
 3. サーバーを起動する。初回起動時に ffmpeg、yt-dlp、deno が
    `modules\TnmsSoundPlayer\tools\` へダウンロードされる。
-4. `ITnmsSoundPlayer.SpeakerSteamId` に自分が管理する SteamID64 を設定する。
-   プラグインから設定するか、`!sp_spk_steam <id>` を使う。
+4. `ITnmsSoundPlayer.SpeakerSteamId` に自分が管理する SteamID64 をプラグインから設定する。
    ソースコードには ID を埋め込んでいない。設定しなくてもスピーカーは動作するが、
    スコアボードではボット扱いになり、アバターも表示されない。
 
@@ -79,18 +83,18 @@
 
 ## コマンド
 
-現在このモジュールは、スピーカーボットを調整するための実験的なコマンドを登録している。
-これらは開発用であり、スピーカーの構成が確定した時点で削除する。
+ライブラリ本体はコマンドを一切登録しない。操作はすべて API 経由で行う。
+`TnmsSoundPlayerTest` は API を手で叩くための別モジュールで、開発中のみロードする。
 チャットでは `!`、コンソールでは `ms_` を接頭辞として入力する。
 
 | コマンド | 説明 |
 |---|---|
-| `sp_spk_status` | 現在のスピーカースロット、xuid、偽装 ID、偽装マスク |
-| `sp_spk_probe` | サーバー側のコントローラ、pawn、userinfo の状態をダンプする |
-| `sp_spk_bot [name]` | スピーカーボットを要求する。既にいる場合は改名する |
-| `sp_spk_kick` | スピーカーボットを削除し、再作成も止める |
-| `sp_spk_disguise <mask>` | 偽装項目を個別に on/off する |
-| `sp_spk_name` / `sp_spk_slot` / `sp_spk_xuid` / `sp_spk_steam` | ボットの名前と、音声の送出元となる識別情報を上書きする |
+| `sp_url <url> [volume]` | URL を再生する。スピーカー名にリクエストした人を出す |
+| `sp_meta <url>` | 再生せずにメタデータを取得する。結果はサーバーコンソールに出る |
+| `sp_stop` | 再生中の音を止める |
+| `sp_status` | ツールの可用性、スピーカーの識別情報、再生中のものとキュー |
+| `sp_spk_name [name]` | 平常時のスピーカー名を表示・設定する |
+| `sp_spk_steam [steamid64]` | スピーカーが偽装する SteamID64 を表示・設定する |
 
 ## ビルド
 
@@ -101,15 +105,6 @@ dotnet build TnmsSoundPlayer/TnmsSoundPlayer.csproj
 環境変数 `MOD_SHARP_DIR` が設定されていれば、ビルド時にモジュールが
 `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\reload\` へ、Shared アセンブリが
 `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\` へコピーされる。
-
-リリースビルドは次のとおり。
-
-```
-dotnet publish TnmsSoundPlayer/TnmsSoundPlayer.csproj -f net10.0 -r win-x64 --no-self-contained -c Release -p:DebugType=None -p:DebugSymbols=false
-```
-
-Linux サーバー向けには `-r linux-x64` を使う。
-出力をサーバーへコピーする前に、ModSharp が既に同梱しているアセンブリ（Microsoft.Extensions.\*、Serilog.\*、Google.Protobuf、System.Text.Json）を取り除く。
 
 ## ドキュメント
 

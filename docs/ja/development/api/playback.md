@@ -45,6 +45,7 @@ Queued --> Playing <--> Paused --> Completed
 | `SetPlayerVolume(IGameClient, float)` | `void` | クライアント単位のサーバー側音量倍率。`0.0` でミュート、`1.0` で無加工 |
 | `GetPlayerVolume(IGameClient)` | `float` | 現在の倍率 |
 | `SpeakerSteamId` | `ulong` | スピーカーボットが偽装する SteamID64。既定の `0` では偽装しない。[スピーカーの識別情報](#スピーカーの識別情報)を参照 |
+| `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前。空文字を入れると `TnmsSpeaker` に戻る。[スピーカーの識別情報](#スピーカーの識別情報)を参照 |
 | `FileService` | `IAudioFileService` | [音声ソース](sources.md)を参照 |
 | `NetworkService` | `INetworkAudioService` | [音声ソース](sources.md)を参照 |
 | `Diagnostics` | `SoundPlayerDiagnostics` | 実行時の状態のスナップショット。どのスレッドから読んでも安全 |
@@ -66,6 +67,17 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 値は即座に反映され、以後作成されるボットにも適用される。
 そのため起動時に一度設定すればよい。
 `0` に戻すと偽装は解除される。
+
+識別情報のもう半分がスコアボードに出る名前で、これは `SpeakerName` が決める。
+これは平常時の名前で、何も再生していない間ずっと表示される。
+
+```csharp
+_player.SpeakerName = "Jukebox";
+```
+
+個々の再生は [`PlayOptions.SpeakerName`](#playoptions) でこの名前を一時的に借りられる。
+再生を要求した人をクレジットしたい場合に使う。
+その再生が終わればどう終わったかによらず平常時の名前に戻る。
 
 ---
 
@@ -155,6 +167,10 @@ session.PlayUrl(url, null, new AnnounceTrack(client));
 | `Loop` | `bool` | `false` | 停止または中断されるまで繰り返す。シーク可能なソースでのみ機能する |
 | `Priority` | `int` | `0` | キューの優先度。高いものから再生される |
 | `WhenBusy` | `QueueBehavior` | `Enqueue` | 何かが再生中だったときの挙動 |
+| `SpeakerName` | `string?` | `null` | この再生が鳴っている間だけスピーカーの名前を差し替え、終了時に `ITnmsSoundPlayer.SpeakerName` に戻す。`null` なら名前に触れない |
+
+名前が切り替わるのは最初の音声パケットが出た時点であり、キューに積まれた時点ではない。
+そのためキューで待っている間や、ソースを開けずに失敗した再生が名前を書き換えることはない。
 
 ---
 

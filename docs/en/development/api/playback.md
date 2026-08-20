@@ -44,6 +44,7 @@ Entry point, resolved from `ISharpModuleManager` with `ITnmsSoundPlayer.Identity
 | `SetPlayerVolume(IGameClient, float)` | `void` | Server-side volume multiplier for one client. `0.0` mutes, `1.0` is unmodified |
 | `GetPlayerVolume(IGameClient)` | `float` | Current per-client multiplier |
 | `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` (the default) disables the spoof. See [Speaker Identity](#speaker-identity) |
+| `SpeakerName` | `string` | Name the speaker shows while nothing is playing. Blank resets it to `TnmsSpeaker`. See [Speaker Identity](#speaker-identity) |
 | `FileService` | `IAudioFileService` | See [Audio Sources](sources.md) |
 | `NetworkService` | `INetworkAudioService` | See [Audio Sources](sources.md) |
 | `Diagnostics` | `SoundPlayerDiagnostics` | Runtime health snapshot. Safe to read from any thread |
@@ -64,6 +65,17 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 
 The value applies immediately and is re-applied to every bot created afterwards, so setting it once
 at startup is enough. Set it back to `0` to drop the spoof.
+
+`SpeakerName` is the other half of that identity: the name on the scoreboard row. It is the resting
+name, shown whenever nothing is playing.
+
+```csharp
+_player.SpeakerName = "Jukebox";
+```
+
+An individual playback can borrow the name for as long as it is audible through
+[`PlayOptions.SpeakerName`](#playoptions) — useful for crediting whoever requested the sound. The
+resting name comes back the moment that playback ends, however it ends.
 
 ---
 
@@ -154,6 +166,10 @@ only needs the parts you care about.
 | `Loop` | `bool` | `false` | Repeats until stopped or interrupted. Only works on seekable sources |
 | `Priority` | `int` | `0` | Queue priority. Higher plays first |
 | `WhenBusy` | `QueueBehavior` | `Enqueue` | What to do when something is already on air |
+| `SpeakerName` | `string?` | `null` | Renames the speaker while this playback is audible, then restores `ITnmsSoundPlayer.SpeakerName`. `null` leaves the name alone |
+
+The rename takes effect when the first audio packet goes out, not when the playback is queued, so a
+sound that waits in the queue or fails to open never touches the name.
 
 ---
 

@@ -11,9 +11,16 @@ global priority queue, so requesting a sound never cuts another plugin off unles
 
 ### 1. Reference TnmsSoundPlayer.Shared
 
-The shared assembly is not published to NuGet. Building TnmsSoundPlayer copies it to
-`%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\`, so reference the DLL from there — or add a
-project reference if you build both from the same solution.
+The shared assembly is published to NuGet as
+[`TnmsSoundPlayer.Shared`](https://www.nuget.org/packages/TnmsSoundPlayer.Shared).
+
+```xml
+<ItemGroup>
+    <PackageReference Include="TnmsSoundPlayer.Shared" Version="0.0.1" ExcludeAssets="runtime" />
+</ItemGroup>
+```
+
+If you build both from the same solution, a project reference works too:
 
 ```xml
 <ItemGroup>
@@ -22,8 +29,9 @@ project reference if you build both from the same solution.
 </ItemGroup>
 ```
 
-`Private="false"` and `ExcludeAssets="runtime"` matter: ModSharp loads the shared assembly once,
-and copying your own duplicate next to your module breaks type identity.
+`ExcludeAssets="runtime"` (and `Private="false"` on a project reference) matters either way: the
+server loads the shared assembly once from `shared\TnmsSoundPlayer.Shared\`, and shipping your own
+copy next to your module breaks type identity.
 
 ### 2. Obtain the API Entry Point
 
@@ -66,6 +74,12 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 No id ships in the source, since it names a real account. Setting it once at startup is enough — it
 is re-applied to every bot created afterwards.
 
+`SpeakerName` is the name on that scoreboard row while nothing is playing:
+
+```csharp
+_player.SpeakerName = "Jukebox";
+```
+
 ### 5. ITnmsSoundPlayer Overview
 
 | Member | Type | Purpose |
@@ -78,6 +92,7 @@ is re-applied to every bot created afterwards.
 | `DefaultHearing` | `bool` | Hearing state applied to clients that connect later |
 | `SetPlayerVolume` / `GetPlayerVolume` | `void` / `float` | Per-client volume multiplier |
 | `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` disables the spoof |
+| `SpeakerName` | `string` | Name the speaker shows while nothing is playing |
 | `FileService` | `IAudioFileService` | Open local files and buffers as PCM |
 | `NetworkService` | `INetworkAudioService` | Open URLs as PCM, and fetch metadata |
 | `Diagnostics` | `SoundPlayerDiagnostics` | Tool availability and queue statistics |
@@ -113,6 +128,19 @@ session.PlayFile(@"sounds\alert.mp3", new PlayOptions
 
 `SoundRecipients.Of` snapshots the set at call time. Use `SoundRecipients.Where(...)` instead when
 you want the set re-evaluated live while the sound plays — for example "everyone currently alive".
+
+### Credit Whoever Requested the Sound
+
+```csharp
+session.PlayUrl(url, new PlayOptions
+{
+    SpeakerName = $"SoundPlayer: by {client.Name}",
+});
+```
+
+The speaker carries that name for as long as the sound is audible, then goes back to
+`SpeakerName`. The rename happens when audio actually starts, so a queued or failed playback
+never touches the name.
 
 ### Interrupt Whatever Is Playing
 

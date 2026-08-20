@@ -11,9 +11,15 @@ TnmsSoundPlayer は、任意の音声を CS2 のボイスチャットに流す�
 
 ### 1. TnmsSoundPlayer.Shared を参照する
 
-Shared アセンブリは NuGet に公開していない。
-TnmsSoundPlayer をビルドすると `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\` に配置されるので、そこの DLL を参照する。
-同じソリューションで両方をビルドするなら、プロジェクト参照でよい。
+Shared アセンブリは [`TnmsSoundPlayer.Shared`](https://www.nuget.org/packages/TnmsSoundPlayer.Shared) として NuGet に公開している。
+
+```xml
+<ItemGroup>
+    <PackageReference Include="TnmsSoundPlayer.Shared" Version="0.0.1" ExcludeAssets="runtime" />
+</ItemGroup>
+```
+
+同じソリューションで両方をビルドするなら、プロジェクト参照でもよい。
 
 ```xml
 <ItemGroup>
@@ -22,8 +28,8 @@ TnmsSoundPlayer をビルドすると `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Sh
 </ItemGroup>
 ```
 
-`Private="false"` と `ExcludeAssets="runtime"` は必須である。
-ModSharp は Shared アセンブリを一度だけロードするため、自分のモジュールの隣に複製を置くと型の同一性が壊れる。
+どちらの場合も `ExcludeAssets="runtime"`（プロジェクト参照なら加えて `Private="false"`）は必須である。
+サーバーは Shared アセンブリを `shared\TnmsSoundPlayer.Shared\` から一度だけロードするため、自分のモジュールの隣に複製を置くと型の同一性が壊れる。
 
 ### 2. API のエントリポイントを取得する
 
@@ -69,6 +75,12 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 実在のアカウントを指す値なので、ソースコードには埋め込んでいない。
 以後作成されるボットにも適用されるため、起動時に一度設定すればよい。
 
+何も再生していないときにそのスコアボード行に出る名前は `SpeakerName` で決める。
+
+```csharp
+_player.SpeakerName = "Jukebox";
+```
+
 ### 5. ITnmsSoundPlayer の全体像
 
 | メンバー | 型 | 用途 |
@@ -81,6 +93,7 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 | `DefaultHearing` | `bool` | 以後接続してくるクライアントに適用される受聴状態 |
 | `SetPlayerVolume` / `GetPlayerVolume` | `void` / `float` | クライアント単位の音量倍率 |
 | `SpeakerSteamId` | `ulong` | スピーカーボットが偽装する SteamID64。`0` で偽装しない |
+| `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前 |
 | `FileService` | `IAudioFileService` | ローカルファイルやバッファを PCM として開く |
 | `NetworkService` | `INetworkAudioService` | URL を PCM として開く。メタデータ取得も行う |
 | `Diagnostics` | `SoundPlayerDiagnostics` | ツールの可用性とキューの統計 |
@@ -116,6 +129,18 @@ session.PlayFile(@"sounds\alert.mp3", new PlayOptions
 
 `SoundRecipients.Of` は呼び出し時点の集合を固定する。
 「そのとき生存しているプレイヤー全員」のように再生中も評価し直したい場合は `SoundRecipients.Where(...)` を使う。
+
+### リクエストした人をスピーカー名に出す
+
+```csharp
+session.PlayUrl(url, new PlayOptions
+{
+    SpeakerName = $"SoundPlayer: by {client.Name}",
+});
+```
+
+音が鳴っている間だけスピーカーがその名前になり、終われば `SpeakerName` に戻る。
+名前が切り替わるのは実際に音声が出始めた時点なので、キュー待ちの再生や失敗した再生が名前を書き換えることはない。
 
 ### 再生中の音を中断して割り込む
 
