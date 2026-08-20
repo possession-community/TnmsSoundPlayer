@@ -39,6 +39,8 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     public bool Init()
     {
         RegisterCommand("sp_url", OnUrl);
+        RegisterCommand("sp_file", OnFile);
+        RegisterCommand("sp_seek", OnSeek);
         RegisterCommand("sp_meta", OnMeta);
         RegisterCommand("sp_stop", OnStop);
         RegisterCommand("sp_status", OnStatus);
@@ -127,6 +129,89 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             new ReportToClient(client));
 
         Reply(client, $"queued: {Describe(playback)}");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>
+    /// Plays a local file. Unlike a URL this source can seek, so it is what sp_seek is meant to be
+    /// used with. The path is passed through as given; a missing file comes back as a Failed
+    /// playback rather than an error here.
+    /// </summary>
+    private ECommandAction OnFile(IGameClient client, StringCommand command)
+    {
+        if (command.ArgCount < 1)
+        {
+            Reply(client, "usage: sp_file <path> [volume]");
+            return ECommandAction.Stopped;
+        }
+
+        var volume = 1.0f;
+        if (command.ArgCount >= 2
+            && !float.TryParse(command.GetArg(2), NumberStyles.Float, CultureInfo.InvariantCulture, out volume))
+        {
+            Reply(client, "invalid volume");
+            return ECommandAction.Stopped;
+        }
+
+        var path = command.GetArg(1).Trim().Trim('"');
+        var session = _player.CreateSession(SessionOwner);
+        var playback = session.PlayFile(
+            path,
+            new PlayOptions { Volume = volume, SpeakerName = $"SoundPlayer: by {client.Name}" },
+            new ReportToClient(client));
+
+        Reply(client, $"queued: {Describe(playback)}");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>
+    /// Seeks the current playback, or reports the seekable range when called with no argument.
+    /// The range needs the source duration, which only local files carry (ffprobe reads it at open
+    /// time); URL sources report an unknown end and refuse to seek at all.
+    /// </summary>
+    private ECommandAction OnSeek(IGameClient client, StringCommand command)
+    {
+        if (_player.CurrentPlayback is not { } playback)
+        {
+            Reply(client, "nothing is playing.");
+            return ECommandAction.Stopped;
+        }
+
+        if (command.ArgCount < 1)
+        {
+            var end = playback.Duration is { } duration
+                ? $"{duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}s"
+                : "unknown (this source has no duration)";
+            Reply(client, $"seek range: 0.0 ~ {end}, now at "
+                + $"{playback.Position.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}s");
+            Reply(client, "usage: sp_seek <seconds>");
+            return ECommandAction.Stopped;
+        }
+
+        if (!double.TryParse(command.GetArg(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+            || seconds < 0)
+        {
+            Reply(client, "usage: sp_seek <seconds>");
+            return ECommandAction.Stopped;
+        }
+
+        if (playback.Duration is { } total && seconds > total.TotalSeconds)
+        {
+            Reply(client, $"past the end ({total.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}s).");
+            return ECommandAction.Stopped;
+        }
+
+        try
+        {
+            playback.Seek(TimeSpan.FromSeconds(seconds));
+        }
+        catch (NotSupportedException)
+        {
+            Reply(client, "this source cannot seek (URL sources are streamed, not downloaded).");
+            return ECommandAction.Stopped;
+        }
+
+        Reply(client, $"seeking to {seconds.ToString("0.0", CultureInfo.InvariantCulture)}s: {Describe(playback)}");
         return ECommandAction.Stopped;
     }
 

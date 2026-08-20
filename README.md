@@ -19,7 +19,7 @@ player, so clients can mute it and adjust its volume with the normal in-game con
 - Per-recipient targeting: everyone, one client, a fixed set, or a live predicate
 - Per-client hearing toggle and server-side volume multiplier
 - Custom sources via `IPcmAudioStream` for TTS or procedurally generated audio
-- ffmpeg, yt-dlp and deno are downloaded automatically at first start
+- ffmpeg, ffprobe, yt-dlp and deno are downloaded automatically at first start
 - No dependency on TnmsPluginFoundation
 
 ## Requirements
@@ -39,7 +39,7 @@ the `modules\` and `shared\` trees ready to merge into `%MOD_SHARP_DIR%`. To pla
    `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\`.
 2. Copy `TnmsSoundPlayer.Shared.dll` into `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\`.
    Shared assemblies belong in `shared\` only — never under `modules\`.
-3. Start the server. On first start the module downloads ffmpeg, yt-dlp and deno into
+3. Start the server. On first start the module downloads ffmpeg, ffprobe, yt-dlp and deno into
    `modules\TnmsSoundPlayer\tools\`.
 4. Set `ITnmsSoundPlayer.SpeakerSteamId` to a SteamID64 you control from a plugin. No id ships in
    the source, and until one is set the speaker still works but the scoreboard marks it as a bot
@@ -57,6 +57,7 @@ written to the user profile.
 | Tool | Purpose |
 |---|---|
 | ffmpeg | Decodes every source to PCM |
+| ffprobe | Reads a local file's duration. Ships in the ffmpeg archive; without it file playbacks report an unknown duration |
 | yt-dlp | Resolves URLs to a media stream |
 | deno | JavaScript runtime yt-dlp needs to solve YouTube's nsig challenge. Without it, YouTube downloads fail with HTTP 403 |
 
@@ -96,6 +97,8 @@ commands in chat with `!`, or in console with the `ms_` prefix.
 | Command | Description |
 |---|---|
 | `sp_url <url> [volume]` | Play a URL, crediting the requester in the speaker name |
+| `sp_file <path> [volume]` | Play a local file — the seekable kind of source |
+| `sp_seek [seconds]` | Seek the current playback, or print its seekable range |
 | `sp_meta <url>` | Fetch metadata without playing; the result goes to the server console |
 | `sp_stop` | Stop whatever is playing |
 | `sp_status` | Tool availability, speaker identity, current playback and queue |

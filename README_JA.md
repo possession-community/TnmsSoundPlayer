@@ -18,7 +18,7 @@
 - 宛先の指定。全員、単一クライアント、固定した集合、再生中に評価される述語
 - クライアント単位の受聴 on/off とサーバー側音量倍率
 - `IPcmAudioStream` による独自ソース。音声合成や手続き的に生成した音声を流せる
-- ffmpeg、yt-dlp、deno は初回起動時に自動ダウンロードされる
+- ffmpeg、ffprobe、yt-dlp、deno は初回起動時に自動ダウンロードされる
 - TnmsPluginFoundation に依存しない
 
 ## 動作環境
@@ -39,7 +39,7 @@
    `%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\` に配置する。
 2. `TnmsSoundPlayer.Shared.dll` を `%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\` に配置する。
    Shared アセンブリは `shared\` にのみ置く。`modules\` に置いてはいけない。
-3. サーバーを起動する。初回起動時に ffmpeg、yt-dlp、deno が
+3. サーバーを起動する。初回起動時に ffmpeg、ffprobe、yt-dlp、deno が
    `modules\TnmsSoundPlayer\tools\` へダウンロードされる。
 4. `ITnmsSoundPlayer.SpeakerSteamId` に自分が管理する SteamID64 をプラグインから設定する。
    ソースコードには ID を埋め込んでいない。設定しなくてもスピーカーは動作するが、
@@ -56,6 +56,7 @@
 | ツール | 用途 |
 |---|---|
 | ffmpeg | すべてのソースを PCM にデコードする |
+| ffprobe | ローカルファイルの再生時間を読む。ffmpeg のアーカイブに同梱されている。無い場合、ファイル再生の再生時間は不明のままになる |
 | yt-dlp | URL からメディアストリームを解決する |
 | deno | yt-dlp が YouTube の nsig チャレンジを解くために必要な JavaScript ランタイム。無いと YouTube のダウンロードが HTTP 403 で失敗する |
 
@@ -90,6 +91,8 @@
 | コマンド | 説明 |
 |---|---|
 | `sp_url <url> [volume]` | URL を再生する。スピーカー名にリクエストした人を出す |
+| `sp_file <path> [volume]` | ローカルファイルを再生する。シーク可能なのはこちら |
+| `sp_seek [seconds]` | 再生中の音をシークする。引数なしでシーク可能な範囲を表示する |
 | `sp_meta <url>` | 再生せずにメタデータを取得する。結果はサーバーコンソールに出る |
 | `sp_stop` | 再生中の音を止める |
 | `sp_status` | ツールの可用性、スピーカーの識別情報、再生中のものとキュー |
