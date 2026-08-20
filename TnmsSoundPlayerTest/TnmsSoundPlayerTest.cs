@@ -20,13 +20,25 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     public string DisplayName => "TnmsSoundPlayer Test";
     public string DisplayAuthor => "faketuna";
 
-    private const string SessionOwner = "TnmsSoundPlayerTest";
+    /// <summary>
+    /// Two sessions, so that per-session behaviour can actually be observed: StopAll must leave the
+    /// other one alone, and muting one must not silence the other. Everything below drives whichever
+    /// is selected with sp_session.
+    /// </summary>
+    private const string SessionOwnerA = "TnmsSoundPlayerTest:A";
+    private const string SessionOwnerB = "TnmsSoundPlayerTest:B";
 
     private readonly ILogger<TnmsSoundPlayerTest> _logger;
     private readonly ISharedSystem _shared;
     private readonly Dictionary<string, IClientManager.DelegateClientCommand> _commands = [];
 
     private ITnmsSoundPlayer _player = null!;
+    private bool _useSessionB;
+
+    /// <summary>The session every command below acts on. Shared by all testers, which is fine here.</summary>
+    private ISoundPlayerSession Session => _player.CreateSession(SessionOwner);
+
+    private string SessionOwner => _useSessionB ? SessionOwnerB : SessionOwnerA;
 
     public TnmsSoundPlayerTest(
         ISharedSystem sharedSystem, string dllPath, string sharpPath,
@@ -44,6 +56,11 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         RegisterCommand("sp_seek", OnSeek);
         RegisterCommand("sp_meta", OnMeta);
         RegisterCommand("sp_stop", OnStop);
+        RegisterCommand("sp_stopsession", OnStopSession);
+        RegisterCommand("sp_stopall", OnStopAll);
+        RegisterCommand("sp_session", OnSession);
+        RegisterCommand("sp_hear", OnHear);
+        RegisterCommand("sp_vol", OnVolume);
         RegisterCommand("sp_status", OnStatus);
         RegisterCommand("sp_spk_name", OnSpeakerName);
         RegisterCommand("sp_spk_steam", OnSpeakerSteam);
@@ -95,7 +112,15 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         return true;
     }
 
-    private static string Describe(ISoundPlayback playback)
+    /// <summary>
+    /// The session's own playback that is currently on air, or null. Going through OwnPlaybacks
+    /// rather than ITnmsSoundPlayer.CurrentPlayback is what gives a controllable handle — the global
+    /// view is deliberately read-only so one plugin cannot stop another's sound.
+    /// </summary>
+    private ISoundPlayback? OwnCurrent
+        => Session.OwnPlaybacks.FirstOrDefault(p => p.State is PlaybackState.Playing or PlaybackState.Paused);
+
+    private static string Describe(ISoundPlaybackInfo playback)
     {
         var error = playback.Error is { } e ? $" error={e.Reason}({e.Message})" : string.Empty;
         return $"#{playback.Id} [{playback.State}] owner={playback.OwnerName} pos={playback.Position:mm\\:ss\\.fff} dur={playback.Duration?.ToString(@"mm\:ss\.fff") ?? "?"} vol={playback.Volume.ToString("0.##", CultureInfo.InvariantCulture)}{error}";
@@ -135,7 +160,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             return ECommandAction.Stopped;
         }
 
-        var session = _player.CreateSession(SessionOwner);
+        var session = Session;
         var playback = session.PlayUrl(
             url,
             new PlayOptions
@@ -174,7 +199,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         }
 
         var path = command.GetArg(1).Trim().Trim('"');
-        var session = _player.CreateSession(SessionOwner);
+        var session = Session;
         var playback = session.PlayFile(
             path,
             new PlayOptions { Volume = volume, SpeakerName = $"SoundPlayer: by {client.Name}" },
@@ -191,9 +216,9 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     /// </summary>
     private ECommandAction OnSeek(IGameClient client, StringCommand command)
     {
-        if (_player.CurrentPlayback is not { } playback)
+        if (OwnCurrent is not { } playback)
         {
-            Reply(client, "nothing is playing.");
+            Reply(client, "this session has nothing playing.");
             return ECommandAction.Stopped;
         }
 
@@ -266,8 +291,8 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             if (t.IsCompletedSuccessfully)
             {
                 var m = t.Result;
-                _logger.LogInformation("metadata of {Url}: title={Title} duration={Duration} uploader={Uploader}",
-                    url, m.Title ?? "?", m.Duration?.ToString() ?? "?", m.Uploader ?? "?");
+                _logger.LogInformation("metadata of {Url}: title={Title} duration={Duration} uploader={Uploader} live={IsLive}",
+                    url, m.Title ?? "?", m.Duration?.ToString() ?? "?", m.Uploader ?? "?", m.IsLive);
             }
             else
             {
@@ -279,9 +304,10 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         return ECommandAction.Stopped;
     }
 
+    /// <summary>Stops this session's own playback. Another plugin's sound is not ours to stop.</summary>
     private ECommandAction OnStop(IGameClient client, StringCommand command)
     {
-        if (_player.CurrentPlayback is not { } playback)
+        if (OwnCurrent is not { } playback)
         {
             Reply(client, "nothing is playing.");
             return ECommandAction.Stopped;
@@ -292,11 +318,109 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         return ECommandAction.Stopped;
     }
 
+    /// <summary>The path a plugin actually uses: stops only what this session started.</summary>
+    private ECommandAction OnStopSession(IGameClient client, StringCommand command)
+    {
+        var session = Session;
+        var count = session.OwnPlaybacks.Count;
+
+        session.StopAll();
+        Reply(client, $"stopped {count} playback(s) owned by '{SessionOwner}'.");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>The administrative path: stops every session's audio, not just ours.</summary>
+    private ECommandAction OnStopAll(IGameClient client, StringCommand command)
+    {
+        _player.StopAll();
+        Reply(client, "stopped everything across all sessions.");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>
+    /// Selects which of the two sessions the other commands drive, standing in for two separate
+    /// plugins. Play something on A, switch to B, and B's StopAll must leave A alone.
+    /// </summary>
+    private ECommandAction OnSession(IGameClient client, StringCommand command)
+    {
+        if (command.ArgCount >= 1)
+        {
+            var arg = command.GetArg(1).ToLowerInvariant();
+            if (arg is not ("a" or "b"))
+            {
+                Reply(client, "usage: sp_session <a|b>");
+                return ECommandAction.Stopped;
+            }
+            _useSessionB = arg is "b";
+        }
+
+        Reply(client, $"active session: '{SessionOwner}' ({Session.OwnPlaybacks.Count} playback(s))");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>
+    /// Toggles whether the caller hears this session. Scoped to the session, so it proves that
+    /// muting this plugin leaves other plugins' audio alone.
+    /// </summary>
+    private ECommandAction OnHear(IGameClient client, StringCommand command)
+    {
+        var session = Session;
+
+        if (command.ArgCount < 1)
+        {
+            Reply(client, $"hearing '{SessionOwner}': {session.GetHearing(client)} (usage: sp_hear <on|off>)");
+            return ECommandAction.Stopped;
+        }
+
+        var arg = command.GetArg(1);
+        var hearing = arg is "1" or "on" or "true";
+        if (!hearing && arg is not ("0" or "off" or "false"))
+        {
+            Reply(client, "usage: sp_hear <on|off>");
+            return ECommandAction.Stopped;
+        }
+
+        session.SetHearing(hearing, [client]);
+        Reply(client, $"hearing '{SessionOwner}': {session.GetHearing(client)}");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>Sets the caller's volume multiplier for this session only.</summary>
+    private ECommandAction OnVolume(IGameClient client, StringCommand command)
+    {
+        var session = Session;
+
+        if (command.ArgCount < 1
+            || !float.TryParse(command.GetArg(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var volume))
+        {
+            Reply(client, $"volume for '{SessionOwner}': "
+                + $"{session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
+                + "(usage: sp_vol <0.0-4.0>)");
+            return ECommandAction.Stopped;
+        }
+
+        session.SetPlayerVolume(volume, [client]);
+        Reply(client, $"volume for '{SessionOwner}': "
+            + session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture));
+        return ECommandAction.Stopped;
+    }
+
     private ECommandAction OnStatus(IGameClient client, StringCommand command)
     {
+        var session = Session;
         var d = _player.Diagnostics;
         Reply(client, $"ffmpeg={(d.FfmpegAvailable ? d.FfmpegPath : "MISSING")} yt-dlp={(d.YtdlpAvailable ? d.YtdlpPath : "MISSING")} queue={d.QueueLength} sessions={d.ActiveSessionCount}");
         Reply(client, $"speaker: name='{_player.SpeakerName}' steamId={_player.SpeakerSteamId}");
+        Reply(client, $"active session '{SessionOwner}': hearing={session.GetHearing(client)} "
+            + $"volume={session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
+            + $"own={session.OwnPlaybacks.Count}");
+
+        // The other session too, so cross-session effects (or the absence of them) are visible.
+        var other = _player.CreateSession(_useSessionB ? SessionOwnerA : SessionOwnerB);
+        Reply(client, $"other  session '{other.OwnerName}': hearing={other.GetHearing(client)} "
+            + $"volume={other.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
+            + $"own={other.OwnPlaybacks.Count}");
+
         Reply(client, _player.CurrentPlayback is { } current ? $"current: {Describe(current)}" : "current: (idle)");
 
         var queue = _player.Queue;
