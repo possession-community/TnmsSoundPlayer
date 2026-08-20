@@ -114,6 +114,15 @@ var playback = session.PlayUrl("https://www.youtube.com/watch?v=...");
 `PlayUrl` と `PlayFile` はメディア側の問題では例外を投げない。
 開けなかったソースは `Failed` に到達した再生として返り、理由は `Error` に入る。
 
+URL はダウンロードしながら流すため、ほぼ即座に鳴り始める代わりにシークもループもできず、再生時間も不明になる。
+それらが必要なら先に全部ダウンロードさせる。
+
+```csharp
+session.PlayUrl(url, new PlayOptions { DownloadFirst = true });
+```
+
+ダウンロードが終わるまで何も鳴らないので、既定にはしていない。
+
 ### 特定のプレイヤーにだけファイルを再生する
 
 ```csharp

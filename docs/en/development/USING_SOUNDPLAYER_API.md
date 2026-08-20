@@ -113,6 +113,15 @@ var playback = session.PlayUrl("https://www.youtube.com/watch?v=...");
 `PlayUrl` and `PlayFile` never throw for media problems. A source that cannot be opened comes back
 as a playback that reaches `Failed`, with the reason in `Error`.
 
+A URL is streamed as it downloads, so it starts almost immediately but cannot seek or loop and has
+no known duration. When you need those, have it downloaded in full first:
+
+```csharp
+session.PlayUrl(url, new PlayOptions { DownloadFirst = true });
+```
+
+Nothing plays until that download finishes, which is why it is not the default.
+
 ### Play a File to Specific Players
 
 ```csharp

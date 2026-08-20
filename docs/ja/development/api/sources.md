@@ -57,11 +57,19 @@ yt-dlp が URL を解決し、ffmpeg がデコードする。
 
 | メソッド | 戻り値 | 説明 |
 |---|---|---|
-| `OpenUrlAsync(string url, CancellationToken)` | `Task<IPcmAudioStream>` | yt-dlp が対応する URL を PCM ストリームとして開く |
+| `OpenUrlAsync(string url, CancellationToken)` | `Task<IPcmAudioStream>` | yt-dlp が対応する URL を、ダウンロードしながら流す PCM ストリームとして開く |
+| `OpenUrlAsync(string url, bool downloadFirst, CancellationToken)` | `Task<IPcmAudioStream>` | 上と同じだが、`downloadFirst: true` ならテンポラリファイルに全部落としてから返す |
 | `GetMetadataAsync(string url, CancellationToken)` | `Task<AudioMetadata>` | メディア本体をダウンロードせずメタデータを取得する（`yt-dlp -J`） |
 
-URL のストリームはシークできない。
+ストリーミングの URL はシークできない。
 `CanSeek` は `false`、`Duration` は `null` になり、`ISoundPlayback.Seek` と `PlayOptions.Loop` は使えない。
+yt-dlp の出力を ffmpeg に直接パイプしており、パイプは巻き戻せないからである。
+
+`downloadFirst: true` は再生開始の遅れと引き換えにそれらを全部有効にする。
+ソースが普通のローカルファイルになるので、シークもループも再生時間も使える。
+ダウンロードが終わるまで何も鳴らない。
+テンポラリファイルはストリームの破棄時に削除され、クラッシュで残ったものはモジュール起動時に掃除される。
+再生 API 側からは [`PlayOptions.DownloadFirst`](playback.md#playoptions) が同じスイッチになる。
 
 この API で本当に非同期なのはこの 2 つだけであり、継続はワーカースレッドで走る。
 そこから `IGameClient`、エンティティ、その他 ModSharp が管理するものに触れてはいけない。

@@ -39,6 +39,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     public bool Init()
     {
         RegisterCommand("sp_url", OnUrl);
+        RegisterCommand("sp_dlurl", OnDownloadUrl);
         RegisterCommand("sp_file", OnFile);
         RegisterCommand("sp_seek", OnSeek);
         RegisterCommand("sp_meta", OnMeta);
@@ -100,11 +101,23 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         return $"#{playback.Id} [{playback.State}] owner={playback.OwnerName} pos={playback.Position:mm\\:ss\\.fff} dur={playback.Duration?.ToString(@"mm\:ss\.fff") ?? "?"} vol={playback.Volume.ToString("0.##", CultureInfo.InvariantCulture)}{error}";
     }
 
+    /// <summary>Streams the URL: audio starts quickly, but the playback cannot seek.</summary>
     private ECommandAction OnUrl(IGameClient client, StringCommand command)
+        => PlayUrlCommand(client, command, "sp_url", downloadFirst: false);
+
+    /// <summary>
+    /// Downloads the URL in full first, which makes it seekable and gives it a duration.
+    /// Nothing is audible until the download finishes, so long tracks take a while to start.
+    /// </summary>
+    private ECommandAction OnDownloadUrl(IGameClient client, StringCommand command)
+        => PlayUrlCommand(client, command, "sp_dlurl", downloadFirst: true);
+
+    private ECommandAction PlayUrlCommand(
+        IGameClient client, StringCommand command, string commandName, bool downloadFirst)
     {
         if (command.ArgCount < 1)
         {
-            Reply(client, "usage: sp_url <url> [volume]");
+            Reply(client, $"usage: {commandName} <url> [volume]");
             return ECommandAction.Stopped;
         }
 
@@ -118,17 +131,24 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
 
         if (!TryNormalizeUrl(command.GetArg(1), out var url))
         {
-            Reply(client, "the console ate your URL after '//'. Quote it (\"https://...\"), drop the scheme (www.youtube.com/...), or use chat (!sp_url).");
+            Reply(client, $"the console ate your URL after '//'. Quote it (\"https://...\"), drop the scheme (www.youtube.com/...), or use chat (!{commandName}).");
             return ECommandAction.Stopped;
         }
 
         var session = _player.CreateSession(SessionOwner);
         var playback = session.PlayUrl(
             url,
-            new PlayOptions { Volume = volume, SpeakerName = $"SoundPlayer: by {client.Name}" },
+            new PlayOptions
+            {
+                Volume = volume,
+                SpeakerName = $"SoundPlayer: by {client.Name}",
+                DownloadFirst = downloadFirst,
+            },
             new ReportToClient(client));
 
-        Reply(client, $"queued: {Describe(playback)}");
+        Reply(client, downloadFirst
+            ? $"downloading, then playing: {Describe(playback)}"
+            : $"queued: {Describe(playback)}");
         return ECommandAction.Stopped;
     }
 

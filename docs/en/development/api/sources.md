@@ -54,11 +54,19 @@ Opens network sources: yt-dlp resolves the URL, ffmpeg decodes the result.
 
 | Method | Return Type | Description |
 |---|---|---|
-| `OpenUrlAsync(string url, CancellationToken)` | `Task<IPcmAudioStream>` | Opens any yt-dlp supported URL as a PCM stream |
+| `OpenUrlAsync(string url, CancellationToken)` | `Task<IPcmAudioStream>` | Opens any yt-dlp supported URL as a PCM stream, streamed while it downloads |
+| `OpenUrlAsync(string url, bool downloadFirst, CancellationToken)` | `Task<IPcmAudioStream>` | As above, but `downloadFirst: true` fetches the whole source to a temporary file before returning |
 | `GetMetadataAsync(string url, CancellationToken)` | `Task<AudioMetadata>` | Fetches metadata without downloading the media (`yt-dlp -J`) |
 
-URL streams cannot seek: `CanSeek` is `false`, `Duration` is `null`, and both `ISoundPlayback.Seek`
-and `PlayOptions.Loop` are unavailable for them.
+A streamed URL cannot seek: `CanSeek` is `false`, `Duration` is `null`, and both
+`ISoundPlayback.Seek` and `PlayOptions.Loop` are unavailable for it. yt-dlp's output is piped
+straight into ffmpeg, and a pipe cannot rewind.
+
+`downloadFirst: true` trades startup latency for all of that: the source becomes an ordinary local
+file, so it seeks, loops and knows its duration. Nothing plays until the download finishes. The
+temporary file is deleted when the stream is disposed, and any left behind by a crash are swept at
+module start. Through the playback API the same switch is
+[`PlayOptions.DownloadFirst`](playback.md#playoptions).
 
 These are the only genuinely `async` parts of the API, and their continuations run on worker
 threads. **Never touch `IGameClient`, entities, or anything else ModSharp owns from there** — those

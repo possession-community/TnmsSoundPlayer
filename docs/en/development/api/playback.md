@@ -167,9 +167,16 @@ only needs the parts you care about.
 | `Priority` | `int` | `0` | Queue priority. Higher plays first |
 | `WhenBusy` | `QueueBehavior` | `Enqueue` | What to do when something is already on air |
 | `SpeakerName` | `string?` | `null` | Renames the speaker while this playback is audible, then restores `ITnmsSoundPlayer.SpeakerName`. `null` leaves the name alone |
+| `DownloadFirst` | `bool` | `false` | `PlayUrl` only: fetch the whole source before playing any of it. Makes it seekable and loopable and gives it a duration, at the cost of the download in startup latency |
 
 The rename takes effect when the first audio packet goes out, not when the playback is queued, so a
 sound that waits in the queue or fails to open never touches the name.
+
+`DownloadFirst` is the difference between a sound effect and a jukebox. Streamed (the default), a URL
+starts within a second but cannot seek, cannot loop and reports an unknown duration, because yt-dlp's
+output is piped straight into ffmpeg and a pipe cannot rewind. Downloaded, it lands in a temporary
+file first — which is a local file like any other, so everything works — but nothing is audible until
+the download finishes. The temporary file is deleted when the playback ends.
 
 ---
 

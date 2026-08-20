@@ -85,8 +85,10 @@ The bot occupies one player slot. On a server that runs at its player limit, acc
   the second channel is pure overhead.
 - **Audio quality is capped by the voice path.** The bitrate is 128 kbps, but the client's voice DSP
   still shapes the result — bass in particular comes through weakly.
-- **URL sources cannot seek.** `ISoundPlayback.Seek` and `PlayOptions.Loop` are unavailable for them,
-  and their duration is unknown.
+- **Streamed URL sources cannot seek.** `ISoundPlayback.Seek` and `PlayOptions.Loop` are unavailable
+  for them and their duration is unknown, because yt-dlp is piped straight into ffmpeg. Set
+  `PlayOptions.DownloadFirst` to fetch the source first and get all three back, at the cost of
+  waiting for the download before anything plays.
 
 ## Commands
 
@@ -97,6 +99,7 @@ commands in chat with `!`, or in console with the `ms_` prefix.
 | Command | Description |
 |---|---|
 | `sp_url <url> [volume]` | Play a URL, crediting the requester in the speaker name |
+| `sp_dlurl <url> [volume]` | Same, but downloaded first, so it can seek |
 | `sp_file <path> [volume]` | Play a local file — the seekable kind of source |
 | `sp_seek [seconds]` | Seek the current playback, or print its seekable range |
 | `sp_meta <url>` | Fetch metadata without playing; the result goes to the server console |
