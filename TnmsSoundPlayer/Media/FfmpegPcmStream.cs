@@ -91,6 +91,7 @@ internal sealed class DecodePipeline : IDisposable
 internal sealed class FfmpegPcmStream : IPcmAudioStream
 {
     private readonly Func<TimeSpan, DecodePipeline> _factory;
+    private readonly Action? _onDispose;
     private DecodePipeline? _pipeline;
     private byte[] _prebuffer = [];
     private int _prebufferOffset;
@@ -102,11 +103,17 @@ internal sealed class FfmpegPcmStream : IPcmAudioStream
     public TimeSpan? Duration { get; }
     public TimeSpan Position => PipelineFormat.GetDuration(_positionBytes);
 
-    public FfmpegPcmStream(Func<TimeSpan, DecodePipeline> factory, bool canSeek, TimeSpan? duration)
+    /// <param name="onDispose">
+    /// Runs after the pipeline is torn down. Used to delete a temporary file the stream was reading
+    /// from, which cannot happen earlier: seeking restarts the pipeline against the same path.
+    /// </param>
+    public FfmpegPcmStream(
+        Func<TimeSpan, DecodePipeline> factory, bool canSeek, TimeSpan? duration, Action? onDispose = null)
     {
         _factory = factory;
         CanSeek = canSeek;
         Duration = duration;
+        _onDispose = onDispose;
     }
 
     /// <summary>
@@ -196,5 +203,6 @@ internal sealed class FfmpegPcmStream : IPcmAudioStream
         _disposed = true;
         _pipeline?.Dispose();
         _pipeline = null;
+        _onDispose?.Invoke();
     }
 }

@@ -133,6 +133,79 @@ internal static class FfmpegProcess
             PlaybackErrorReason.DecodeFailed, $"Failed to start process '{psi.FileName}'.");
 
     /// <summary>
+    /// Downloads a URL to a file under the module's download cache and returns its path.
+    /// The caller owns the file and must delete it. yt-dlp picks the container, so the output
+    /// template keeps a fixed stem and lets yt-dlp choose the extension.
+    /// </summary>
+    public static async Task<string> DownloadUrlAsync(
+        string ytdlpPath, ToolManager tools, string url, CancellationToken ct)
+    {
+        var directory = tools.DownloadDirectory;
+        Directory.CreateDirectory(directory);
+
+        var stem = Guid.NewGuid().ToString("N");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = ytdlpPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("--no-playlist");
+        psi.ArgumentList.Add("--quiet");
+        psi.ArgumentList.Add("--no-warnings");
+        psi.ArgumentList.Add("--no-part");
+        ConfigureYtdlp(psi, tools);
+        psi.ArgumentList.Add("-f");
+        psi.ArgumentList.Add("bestaudio/best");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add(Path.Combine(directory, stem + ".%(ext)s"));
+        psi.ArgumentList.Add(url);
+
+        using var process = Process.Start(psi)
+            ?? throw new SoundPlayerException(PlaybackErrorReason.UrlResolveFailed, "Failed to start yt-dlp.");
+
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+
+        if (process.ExitCode != 0)
+        {
+            CleanupStem(directory, stem);
+            throw new SoundPlayerException(PlaybackErrorReason.UrlResolveFailed,
+                $"yt-dlp exited with code {process.ExitCode}: {(await stderrTask).Trim()}");
+        }
+
+        // The extension is whatever yt-dlp settled on, so match the stem instead.
+        var produced = Directory.EnumerateFiles(directory, stem + ".*").FirstOrDefault();
+        if (produced is null)
+        {
+            throw new SoundPlayerException(PlaybackErrorReason.UrlResolveFailed,
+                "yt-dlp reported success but produced no file.");
+        }
+
+        return produced;
+    }
+
+    private static void CleanupStem(string directory, string stem)
+    {
+        foreach (var leftover in Directory.EnumerateFiles(directory, stem + ".*"))
+        {
+            try
+            {
+                File.Delete(leftover);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    /// <summary>
     /// Reads a local file's duration with ffprobe. Returns null when ffprobe is unavailable or the
     /// container carries no duration, which is what ISoundPlayback.Duration reports as "unknown".
     /// </summary>
@@ -261,15 +334,67 @@ internal sealed class NetworkAudioService : INetworkAudioService
         => _tools = tools;
 
     public async Task<IPcmAudioStream> OpenUrlAsync(string url, CancellationToken ct = default)
+        => await OpenUrlAsync(url, downloadFirst: false, ct);
+
+    public async Task<IPcmAudioStream> OpenUrlAsync(string url, bool downloadFirst, CancellationToken ct = default)
     {
         var (ffmpeg, ytdlp) = RequireTools();
 
+        if (downloadFirst)
+        {
+            return await OpenDownloadedAsync(ffmpeg, ytdlp, url, ct);
+        }
+
+        // Streamed: yt-dlp's stdout feeds ffmpeg's stdin, so nothing lands on disk and there is
+        // nothing to rewind to. Playback starts as soon as the first bytes arrive.
         var stream = new FfmpegPcmStream(
             _ => FfmpegProcess.StartForUrl(ffmpeg, ytdlp, _tools, url),
             canSeek: false,
             duration: null);
         await stream.PrimeAsync(ct);
         return stream;
+    }
+
+    /// <summary>
+    /// Fetches the whole thing to a temporary file, then plays it as a local file. Costs the
+    /// download before the first sound, and buys seeking, looping and a known duration.
+    /// </summary>
+    private async Task<IPcmAudioStream> OpenDownloadedAsync(
+        string ffmpeg, string ytdlp, string url, CancellationToken ct)
+    {
+        var path = await FfmpegProcess.DownloadUrlAsync(ytdlp, _tools, url, ct);
+
+        try
+        {
+            var stream = new FfmpegPcmStream(
+                startAt => FfmpegProcess.StartForFile(ffmpeg, path, startAt),
+                canSeek: true,
+                duration: await FfmpegProcess.ProbeDurationAsync(_tools.FfprobePath, path, ct),
+                onDispose: () => TryDelete(path));
+            await stream.PrimeAsync(ct);
+            return stream;
+        }
+        catch
+        {
+            // PrimeAsync failed, so nothing will ever dispose the stream and free the file.
+            TryDelete(path);
+            throw;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // Left behind for the next startup sweep; ffmpeg may still be releasing the handle.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     public async Task<AudioMetadata> GetMetadataAsync(string url, CancellationToken ct = default)

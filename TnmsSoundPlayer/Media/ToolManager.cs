@@ -37,6 +37,9 @@ internal sealed class ToolManager
     public bool Downloading => _downloading;
     public string ToolsDirectory => _toolsDir;
 
+    /// <summary>Where downloaded-first URL sources are staged. Swept at startup.</summary>
+    public string DownloadDirectory => Path.Combine(_toolsDir, "cache", "downloads");
+
     public ToolManager(ILogger logger, string moduleDirectory)
     {
         _logger = logger;
@@ -47,6 +50,7 @@ internal sealed class ToolManager
     public void Initialize()
     {
         Directory.CreateDirectory(_toolsDir);
+        SweepDownloads();
 
         _ffmpegPath = Resolve(WindowsName("ffmpeg"));
         _ffprobePath = Resolve(WindowsName("ffprobe"));
@@ -62,6 +66,37 @@ internal sealed class ToolManager
 
         _downloading = true;
         _ = Task.Run(DownloadMissingAsync);
+    }
+
+    /// <summary>
+    /// Deletes staged downloads left behind by a crash or a hard shutdown. Safe at startup because
+    /// nothing is playing yet, and these files are only ever owned by a live playback.
+    /// </summary>
+    private void SweepDownloads()
+    {
+        if (!Directory.Exists(DownloadDirectory))
+        {
+            return;
+        }
+
+        var swept = 0;
+        foreach (var file in Directory.EnumerateFiles(DownloadDirectory))
+        {
+            try
+            {
+                File.Delete(file);
+                swept++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Still held by something; try again next start.
+            }
+        }
+
+        if (swept > 0)
+        {
+            _logger.LogInformation("Removed {Count} leftover staged download(s).", swept);
+        }
     }
 
     private static string WindowsName(string name)

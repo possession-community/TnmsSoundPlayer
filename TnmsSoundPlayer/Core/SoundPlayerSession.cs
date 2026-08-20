@@ -24,7 +24,11 @@ internal sealed class SoundPlayerSession : ISoundPlayerSession
         => _core.Play(OwnerName, ct => _core.FileService.OpenFileAsync(path, ct), null, options, callback);
 
     public ISoundPlayback PlayUrl(string url, PlayOptions? options = null, ISoundPlaybackCallback? callback = null)
-        => _core.Play(OwnerName, ct => _core.NetworkService.OpenUrlAsync(url, ct), null, options, callback);
+    {
+        var downloadFirst = options?.DownloadFirst ?? false;
+        return _core.Play(
+            OwnerName, ct => _core.NetworkService.OpenUrlAsync(url, downloadFirst, ct), null, options, callback);
+    }
 
     public IReadOnlyList<ISoundPlayback> OwnPlaybacks => _core.GetOwnedPlaybacks(OwnerName);
 
