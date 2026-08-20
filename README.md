@@ -58,7 +58,7 @@ written to the user profile.
 |---|---|
 | ffmpeg | Decodes every source to PCM |
 | ffprobe | Reads a local file's duration. Ships in the ffmpeg archive; without it file playbacks report an unknown duration |
-| yt-dlp | Resolves URLs to a media stream |
+| yt-dlp | Resolves URLs to a media stream. Self-updates daily when it lives in `tools\`, because YouTube breaks older builds within weeks — extraction keeps working while the media download starts failing with HTTP 403 |
 | deno | JavaScript runtime yt-dlp needs to solve YouTube's nsig challenge. Without it, YouTube downloads fail with HTTP 403 |
 
 ## How Playback Works

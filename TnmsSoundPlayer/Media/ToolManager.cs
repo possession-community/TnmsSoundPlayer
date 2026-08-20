@@ -46,6 +46,13 @@ internal sealed class ToolManager
         _toolsDir = Path.Combine(moduleDirectory, "tools");
     }
 
+    /// <summary>
+    /// How stale our own yt-dlp copy may get before it is refreshed. YouTube changes often enough
+    /// that a copy a few weeks old starts failing media downloads with HTTP 403, even though
+    /// extraction still succeeds (seen with 2026.07.04 on 2026-08-20; updating fixed it outright).
+    /// </summary>
+    private static readonly TimeSpan YtdlpMaxAge = TimeSpan.FromDays(1);
+
     /// <summary>Resolves both tools, downloading missing ones in the background.</summary>
     public void Initialize()
     {
@@ -61,11 +68,65 @@ internal sealed class ToolManager
         {
             _logger.LogInformation("Tools resolved: ffmpeg={Ffmpeg}, ffprobe={Ffprobe}, yt-dlp={Ytdlp}, deno={Deno}",
                 _ffmpegPath, _ffprobePath, _ytdlpPath, _denoPath);
+            _ = Task.Run(UpdateYtdlpAsync);
             return;
         }
 
         _downloading = true;
-        _ = Task.Run(DownloadMissingAsync);
+        _ = Task.Run(async () =>
+        {
+            await DownloadMissingAsync();
+            await UpdateYtdlpAsync();
+        });
+    }
+
+    /// <summary>
+    /// Keeps our own yt-dlp copy current through its own updater. Only touches a binary inside the
+    /// tools directory: one found on PATH belongs to whoever installed it.
+    /// Runs in the background, so a slow or failed update never delays module start.
+    /// </summary>
+    private async Task UpdateYtdlpAsync()
+    {
+        if (_ytdlpPath is not { } path
+            || !path.StartsWith(_toolsDir, StringComparison.OrdinalIgnoreCase)
+            || DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < YtdlpMaxAge)
+        {
+            return;
+        }
+
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-U");
+
+            using var process = System.Diagnostics.Process.Start(psi)
+                ?? throw new InvalidOperationException("Failed to start yt-dlp.");
+
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogWarning("yt-dlp self-update exited with code {Code}; the existing copy is kept.",
+                    process.ExitCode);
+                return;
+            }
+
+            // Touch it either way: a no-op update should not re-check on every restart.
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+            _logger.LogInformation("yt-dlp update check: {Result}", stdout.Trim().Replace("\r\n", " | "));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "yt-dlp self-update failed; the existing copy is kept.");
+        }
     }
 
     /// <summary>
