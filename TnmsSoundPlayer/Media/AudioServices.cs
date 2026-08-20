@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using TnmsSoundPlayer.Shared;
 
 namespace TnmsSoundPlayer.Media;
@@ -328,10 +329,14 @@ internal sealed class AudioFileService : IAudioFileService
 
 internal sealed class NetworkAudioService : INetworkAudioService
 {
+    private readonly ILogger _logger;
     private readonly ToolManager _tools;
 
-    public NetworkAudioService(ToolManager tools)
-        => _tools = tools;
+    public NetworkAudioService(ILogger logger, ToolManager tools)
+    {
+        _logger = logger;
+        _tools = tools;
+    }
 
     public async Task<IPcmAudioStream> OpenUrlAsync(string url, CancellationToken ct = default)
         => await OpenUrlAsync(url, downloadFirst: false, ct);
@@ -342,7 +347,19 @@ internal sealed class NetworkAudioService : INetworkAudioService
 
         if (downloadFirst)
         {
-            return await OpenDownloadedAsync(ffmpeg, ytdlp, url, ct);
+            // A live source never finishes downloading, so honouring the flag would block here
+            // forever — and the playback is already holding the single slot by the time we run,
+            // which would stall the whole queue. Stream it instead.
+            if (await IsLiveAsync(url, ct))
+            {
+                _logger.LogInformation(
+                    "DownloadFirst ignored for {Url}: the source is live, so it is streamed instead "
+                    + "(no seeking, no duration).", url);
+            }
+            else
+            {
+                return await OpenDownloadedAsync(ffmpeg, ytdlp, url, ct);
+            }
         }
 
         // Streamed: yt-dlp's stdout feeds ffmpeg's stdin, so nothing lands on disk and there is
@@ -353,6 +370,22 @@ internal sealed class NetworkAudioService : INetworkAudioService
             duration: null);
         await stream.PrimeAsync(ct);
         return stream;
+    }
+
+    /// <summary>
+    /// Whether the source has no end. Treats a metadata failure as "not live" so that a broken URL
+    /// fails later through the normal open path, with its real error rather than this one.
+    /// </summary>
+    private async Task<bool> IsLiveAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            return (await GetMetadataAsync(url, ct)).IsLive;
+        }
+        catch (SoundPlayerException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -437,7 +470,12 @@ internal sealed class NetworkAudioService : INetworkAudioService
                 Duration: root.TryGetProperty("duration", out var duration) && duration.ValueKind == JsonValueKind.Number
                     ? TimeSpan.FromSeconds(duration.GetDouble())
                     : null,
-                Uploader: root.TryGetProperty("uploader", out var uploader) ? uploader.GetString() : null);
+                Uploader: root.TryGetProperty("uploader", out var uploader) ? uploader.GetString() : null,
+                // yt-dlp reports is_live for a broadcast in progress; a plain radio stream usually
+                // has neither flag and no duration, which we treat as live all the same.
+                IsLive: (root.TryGetProperty("is_live", out var isLive) && isLive.ValueKind == JsonValueKind.True)
+                    || (root.TryGetProperty("live_status", out var liveStatus)
+                        && liveStatus.GetString() is "is_live" or "post_live"));
         }
         catch (JsonException ex)
         {

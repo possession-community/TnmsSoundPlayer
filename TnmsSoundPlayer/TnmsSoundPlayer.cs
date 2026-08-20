@@ -47,7 +47,7 @@ public sealed class TnmsSoundPlayer : IModSharpModule
             _sharedSystem.GetClientManager(),
             _tools,
             new AudioFileService(_tools),
-            new NetworkAudioService(_tools));
+            new NetworkAudioService(_logger, _tools));
 
         _speaker = new SpeakerManager(
             _logger,
