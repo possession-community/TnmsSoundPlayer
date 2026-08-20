@@ -20,30 +20,21 @@ public interface ITnmsSoundPlayer
     /// </summary>
     ISoundPlayerSession CreateSession(string ownerName);
 
-    /// <summary>The playback currently on air, or null when idle.</summary>
-    ISoundPlayback? CurrentPlayback { get; }
+    /// <summary>
+    /// The playback currently on air, or null when idle. Read-only on purpose: it may belong to
+    /// another plugin, and stopping it is <see cref="StopAll"/>'s job, not a stray command's.
+    /// </summary>
+    ISoundPlaybackInfo? CurrentPlayback { get; }
 
     /// <summary>Snapshot of the pending queue in playback order (excludes <see cref="CurrentPlayback"/>).</summary>
-    IReadOnlyList<ISoundPlayback> Queue { get; }
-
-    /// <summary>Stops the current playback and clears the queue across all sessions (administrative).</summary>
-    void StopAll();
-
-    /// <summary>Enables or disables sound player audio for the given client (global, across all playbacks).</summary>
-    void SetHearing(IGameClient client, bool hearing);
-
-    bool GetHearing(IGameClient client);
+    IReadOnlyList<ISoundPlaybackInfo> Queue { get; }
 
     /// <summary>
-    /// Initial hearing state applied to newly connected clients.
-    /// Changing this does not affect clients that are already connected.
+    /// Stops the current playback and clears the queue across all sessions (administrative).
+    /// Per-client hearing and volume live on <see cref="ISoundPlayerSession"/>, so that muting one
+    /// plugin cannot silence another; this is the one deliberately server-wide control.
     /// </summary>
-    bool DefaultHearing { get; set; }
-
-    /// <summary>Sets the server-side per-player volume multiplier. 0.0 mutes, 1.0 is unmodified.</summary>
-    void SetPlayerVolume(IGameClient client, float volume);
-
-    float GetPlayerVolume(IGameClient client);
+    void StopAll();
 
     /// <summary>
     /// SteamID64 the speaker bot masquerades as; 0 (the default) disables the spoof.

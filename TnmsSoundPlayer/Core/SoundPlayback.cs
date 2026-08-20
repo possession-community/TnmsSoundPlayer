@@ -211,6 +211,13 @@ internal sealed class SoundPlayback : ISoundPlayback
             Stream ??= await _sourceFactory(ct);
             ct.ThrowIfCancellationRequested();
 
+            // Seek says so by throwing; Loop used to just quietly not happen. Say it out loud once,
+            // because "my live stream does not loop" is otherwise invisible.
+            if (Options.Loop && !Stream.CanSeek)
+            {
+                _core.WarnLoopUnsupported(Id, OwnerName);
+            }
+
             if (Options.StartAt > TimeSpan.Zero)
             {
                 SeekOrSkip(Options.StartAt);
@@ -247,7 +254,7 @@ internal sealed class SoundPlayback : ISoundPlayback
                     Scale(baseSamples, playbackVolume);
                 }
 
-                var buckets = _core.GetVolumeBuckets();
+                var buckets = _core.GetVolumeBuckets(OwnerName);
                 var packets = new Dictionary<float, OpusPacket>(buckets.Length);
                 foreach (var bucketVolume in buckets)
                 {

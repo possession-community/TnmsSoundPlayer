@@ -57,9 +57,6 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     private readonly Dictionary<string, SoundPlayerSession> _sessions = [];
     private readonly List<SoundPlayback> _queue = [];
     private readonly List<SoundPlayback> _pendingFinish = [];
-    private readonly Dictionary<int, bool> _hearing = [];
-    private readonly Dictionary<int, float> _playerVolumes = [];
-    private readonly Lock _volumeLock = new();
 
     private SoundPlayback? _current;
     private long _nextPlaybackId;
@@ -89,9 +86,9 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
         return session;
     }
 
-    public ISoundPlayback? CurrentPlayback => _current;
+    public ISoundPlaybackInfo? CurrentPlayback => _current;
 
-    public IReadOnlyList<ISoundPlayback> Queue => [.. _queue];
+    public IReadOnlyList<ISoundPlaybackInfo> Queue => [.. _queue];
 
     public void StopAll()
     {
@@ -109,29 +106,14 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
         }
     }
 
-    public void SetHearing(IGameClient client, bool hearing)
-        => _hearing[SlotOf(client)] = hearing;
-
-    public bool GetHearing(IGameClient client)
-        => _hearing.TryGetValue(SlotOf(client), out var hearing) ? hearing : DefaultHearing;
-
-    public bool DefaultHearing { get; set; } = true;
-
-    public void SetPlayerVolume(IGameClient client, float volume)
-    {
-        lock (_volumeLock)
-        {
-            _playerVolumes[SlotOf(client)] = Math.Clamp(volume, 0f, 4f);
-        }
-    }
-
-    public float GetPlayerVolume(IGameClient client)
-    {
-        lock (_volumeLock)
-        {
-            return _playerVolumes.TryGetValue(SlotOf(client), out var volume) ? volume : 1f;
-        }
-    }
+    /// <summary>
+    /// Resolves the clients a session-level setter applies to. Null means every connected client;
+    /// an empty sequence means none, so a filter that matched nobody cannot mute the whole server.
+    /// </summary>
+    internal int[] SlotsOf(IEnumerable<IGameClient>? clients)
+        => clients is null
+            ? [.. _clients.GetGameClientList(true).Where(c => !c.IsFakeClient && !c.IsHltv).Select(SlotOf)]
+            : [.. clients.Select(SlotOf)];
 
     public IAudioFileService FileService { get; }
     public INetworkAudioService NetworkService { get; }
@@ -257,25 +239,16 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     }
 
     /// <summary>
-    /// Distinct per-player volume values the encode worker must produce — every volume actually in
-    /// use, so nobody is silently snapped to somebody else's level.
-    /// There is no cap: the dictionary is keyed by player slot, so the count is bounded by the
-    /// server's player limit, and encoding all 64 measured at 14.7 ms per 60 ms chunk (~25% of one
-    /// core) on the worker thread, only while a sound is on air. Rounding to 0.01 collapses float
-    /// noise; that step is inaudible.
+    /// The volumes the encode worker must produce for a playback, read from its own session.
+    /// Falls back to unmodified audio when the session is gone, which should not happen while one of
+    /// its playbacks is still on air.
     /// </summary>
-    internal float[] GetVolumeBuckets()
-    {
-        lock (_volumeLock)
-        {
-            return _playerVolumes.Values
-                .Select(v => MathF.Round(v, 2))
-                .Where(v => v > 0.001f && v != 1f)
-                .Distinct()
-                .Append(1f)
-                .ToArray();
-        }
-    }
+    internal float[] GetVolumeBuckets(string ownerName)
+        => _sessions.TryGetValue(ownerName, out var session) ? session.GetVolumeBuckets() : [1f];
+
+    /// <summary>The session a playback belongs to, or null once it has been dropped.</summary>
+    private SoundPlayerSession? SessionOf(SoundPlayback playback)
+        => _sessions.GetValueOrDefault(playback.OwnerName);
 
     // ---- pump (game thread, every 20 ms) ----
 
@@ -405,10 +378,19 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     {
         playback.Section++;
 
+        // Hearing and volume are the owning session's, so muting one plugin never silences another.
+        var session = SessionOf(playback);
+
         List<(IGameClient Client, float Volume)>? recipients = null;
         foreach (var client in _clients.GetGameClientList(true))
         {
-            if (client.IsFakeClient || client.IsHltv || !GetHearing(client))
+            if (client.IsFakeClient || client.IsHltv)
+            {
+                continue;
+            }
+
+            var slot = SlotOf(client);
+            if (session is not null && !session.HearsSlot(slot))
             {
                 continue;
             }
@@ -418,7 +400,7 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
                 continue;
             }
 
-            var volume = GetPlayerVolume(client);
+            var volume = session?.VolumeOfSlot(slot) ?? 1f;
             if (volume <= 0.001f)
             {
                 continue;
@@ -540,11 +522,18 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
         return count;
     }
 
-    private static int SlotOf(IGameClient client)
+    internal static int SlotOf(IGameClient client)
         => (int)client.Slot.AsPrimitive();
 
     private void LogListenerError(Exception ex)
         => _logger.LogError(ex, "A playback event listener threw.");
+
+    /// <summary>Called from the decode worker when Loop was asked for on a source that cannot rewind.</summary>
+    internal void WarnLoopUnsupported(long playbackId, string ownerName)
+        => _logger.LogWarning(
+            "Playback #{Id} ({Owner}) asked to loop, but its source cannot seek (a streamed URL or a "
+            + "live source). It will play once. Set PlayOptions.DownloadFirst for a URL you need to loop.",
+            playbackId, ownerName);
 
     // ---- IClientListener ----
 
@@ -555,14 +544,7 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     internal event Action<IGameClient>? ClientConnected;
 
     public void OnClientConnected(IGameClient client)
-    {
-        _hearing[SlotOf(client)] = DefaultHearing;
-        lock (_volumeLock)
-        {
-            _playerVolumes[SlotOf(client)] = 1f;
-        }
-        ClientConnected?.Invoke(client);
-    }
+        => ClientConnected?.Invoke(client);
 
     public void OnClientPutInServer(IGameClient client)
         => ClientConnected?.Invoke(client);
@@ -572,11 +554,13 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
 
     public void OnClientDisconnected(IGameClient client, Sharp.Shared.Enums.NetworkDisconnectionReason reason)
     {
-        _hearing.Remove(SlotOf(client));
-        lock (_volumeLock)
+        // Slots are reused, so a stale entry would apply to whoever connects next.
+        var slot = SlotOf(client);
+        foreach (var session in _sessions.Values)
         {
-            _playerVolumes.Remove(SlotOf(client));
+            session.ForgetSlot(slot);
         }
+
         ClientDisconnected?.Invoke(client);
     }
 
