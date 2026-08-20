@@ -1,0 +1,35 @@
+<Project>
+    <PropertyGroup>
+        <Version>0.0.1</Version>
+        <Authors>faketuna</Authors>
+        <Copyright>© 2026 faketuna</Copyright>
+        <RepositoryUrl>https://github.com/possession-community/TnmsSoundPlayer</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/possession-community/TnmsSoundPlayer</PackageProjectUrl>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>14</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <!-- Only TnmsSoundPlayer.Shared is packed; the other projects just ignore these. -->
+    <ItemGroup>
+        <None Include="..\LICENSE" Pack="true" PackagePath="\" />
+        <None Include="..\README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <!-- Embedded symbols: one file fewer to ship, and the release zips stay lean. -->
+    <PropertyGroup>
+        <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+        <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>embedded</DebugType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Remove="obj\**" />
+        <EmbeddedResource Remove="obj\**" />
+        <None Remove="obj\**" />
+    </ItemGroup>
+</Project>

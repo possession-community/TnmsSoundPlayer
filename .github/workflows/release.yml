@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump-type:
+        description: 'Version bump type'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+jobs:
+  release:
+    uses: possession-community/modsharp-publish-action/.github/workflows/release.yml@v1
+    permissions:
+      contents: write
+    with:
+      bump-type: ${{ inputs.bump-type }}
+      version-file: config.props
+    secrets:
+      PAT: ${{ secrets.PAT }}

@@ -1,10 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+    <Import Project="..\config.props" />
+
     <PropertyGroup>
-        <Version>0.0.1</Version>
-        <TargetFramework>net10.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
         <RootNamespace>TnmsSoundPlayerTest</RootNamespace>
     </PropertyGroup>
 
@@ -17,8 +15,14 @@
     </ItemGroup>
 
     <Target Name="CopyPlugin" AfterTargets="Build" Condition="'$(MOD_SHARP_DIR)' != ''">
+        <ItemGroup>
+            <PluginFiles Include="$(TargetDir)$(ProjectName).deps.json" />
+            <PluginFiles Include="$(TargetDir)$(ProjectName).dll" />
+            <!-- config.props uses embedded debug info, so no .pdb is produced -->
+            <PluginFiles Include="$(TargetDir)$(ProjectName).pdb" Condition="Exists('$(TargetDir)$(ProjectName).pdb')" />
+        </ItemGroup>
         <Message Text="Copying the plugin files to ModSharp modules directory" Importance="High" />
-        <Copy SourceFiles="$(TargetDir)$(ProjectName).deps.json;$(TargetDir)$(ProjectName).dll;$(TargetDir)$(ProjectName).pdb" DestinationFolder="$(MOD_SHARP_DIR)\modules\$(ProjectName)\reload" />
+        <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(MOD_SHARP_DIR)\modules\$(ProjectName)\reload" />
         <Message Text="Successfully copied the plugin files" Importance="High" />
     </Target>
 </Project>

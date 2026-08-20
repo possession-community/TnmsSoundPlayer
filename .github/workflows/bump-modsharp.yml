@@ -1,0 +1,20 @@
+name: Bump ModSharp
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # 00:00 JST (15:00 UTC previous day)
+  workflow_dispatch:
+
+jobs:
+  bump:
+    uses: possession-community/modsharp-publish-action/.github/workflows/bump-nuget.yml@v1
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      package-id: ModSharp.Sharp.Shared
+      csproj-paths: |
+        TnmsSoundPlayer/TnmsSoundPlayer.csproj
+        TnmsSoundPlayer.Shared/TnmsSoundPlayer.Shared.csproj
+        TnmsSoundPlayerTest/TnmsSoundPlayerTest.csproj
+      pr-labels: dependencies

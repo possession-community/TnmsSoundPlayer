@@ -1,11 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <Import Project="..\config.props" />
 
     <PropertyGroup>
-        <Version>0.0.1</Version>
-        <TargetFramework>net10.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
         <RootNamespace>TnmsSoundPlayer.Shared</RootNamespace>
+        <PackageId>TnmsSoundPlayer.Shared</PackageId>
+        <Description>Shared API surface for TnmsSoundPlayer, a ModSharp library that plays audio into the CS2 voice channel. Reference this from a plugin to queue playbacks, control the speaker identity and feed custom PCM sources.</Description>
+        <PackageTags>modsharp;cs2;counter-strike;source2;audio;voice</PackageTags>
     </PropertyGroup>
 
     <ItemGroup>
@@ -13,8 +14,13 @@
     </ItemGroup>
 
     <Target Name="CopyShared" AfterTargets="Build" Condition="'$(MOD_SHARP_DIR)' != ''">
+        <ItemGroup>
+            <SharedFiles Include="$(TargetDir)$(ProjectName).dll" />
+            <!-- config.props uses embedded debug info, so no .pdb is produced -->
+            <SharedFiles Include="$(TargetDir)$(ProjectName).pdb" Condition="Exists('$(TargetDir)$(ProjectName).pdb')" />
+        </ItemGroup>
         <Message Text="Copying the shared library to ModSharp shared directory" Importance="High" />
-        <Copy SourceFiles="$(TargetDir)$(ProjectName).dll;$(TargetDir)$(ProjectName).pdb" DestinationFolder="$(MOD_SHARP_DIR)\shared\$(ProjectName)" />
+        <Copy SourceFiles="@(SharedFiles)" DestinationFolder="$(MOD_SHARP_DIR)\shared\$(ProjectName)" />
         <Message Text="Successfully copied the shared library" Importance="High" />
     </Target>
 </Project>
