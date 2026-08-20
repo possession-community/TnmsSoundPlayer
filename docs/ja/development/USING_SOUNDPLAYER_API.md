@@ -86,12 +86,9 @@ _player.SpeakerName = "Jukebox";
 | メンバー | 型 | 用途 |
 |---|---|---|
 | `CreateSession(string)` | `ISoundPlayerSession` | 自プラグインのセッションを取得または作成する |
-| `CurrentPlayback` | `ISoundPlayback?` | 再生中のもの。アイドル時は `null` |
-| `Queue` | `IReadOnlyList<ISoundPlayback>` | 待機中の再生を再生順に並べたもの |
+| `CurrentPlayback` | `ISoundPlaybackInfo?` | 再生中のもの。アイドル時は `null`。自分のものとは限らないので読み取り専用 |
+| `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | 待機中の再生を再生順に並べたもの。読み取り専用 |
 | `StopAll()` | `void` | 全セッションの再生を止める（管理用） |
-| `SetHearing` / `GetHearing` | `void` / `bool` | クライアント単位の受聴の on/off |
-| `DefaultHearing` | `bool` | 以後接続してくるクライアントに適用される受聴状態 |
-| `SetPlayerVolume` / `GetPlayerVolume` | `void` / `float` | クライアント単位の音量倍率 |
 | `SpeakerSteamId` | `ulong` | スピーカーボットが偽装する SteamID64。`0` で偽装しない |
 | `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前 |
 | `FileService` | `IAudioFileService` | ローカルファイルやバッファを PCM として開く |
@@ -225,13 +222,23 @@ playback.Stop();
 ### プレイヤーをミュートする
 
 ```csharp
-_player.SetHearing(client, false);      // このクライアントには一切聞こえなくなる
-_player.SetPlayerVolume(client, 0.5f);  // 音量を下げるだけ
+session.SetHearing(false, [client]);      // このクライアントには自分のプラグインの音が届かなくなる
+session.SetPlayerVolume(0.5f, [client]);  // 音量を下げるだけ
 ```
 
-どちらもクライアント単位のグローバル設定で、個々の再生とは独立している。
-エンコード前にサーバー側で適用される。
+どちらも**セッション単位**なので、自分のプラグインをミュートしても他のプラグインの音には影響しない。
+ジュークボックスを切ったプレイヤーが、ラウンド開始音は聞こえたままでいられる。
+既に鳴っている再生にも以後の再生にも効き、エンコード前にサーバー側で適用される。
 新規接続してくるクライアントの初期値は `DefaultHearing` で決める。
+
+クライアントを省略すると、接続中の全員が対象になる。
+
+```csharp
+session.SetHearing(false);   // 戻すまで、このプラグインの音は誰にも届かない
+```
+
+`null` と違って**空のリストは誰も指さない**。
+フィルタがたまたま0件だったときに、うっかりサーバー全員をミュートすることがないようにしてある。
 
 ### ツールが使える状態か確認する
 
@@ -252,5 +259,5 @@ ffmpeg と yt-dlp はモジュール起動時に自動ダウンロードされ�
 
 | ページ | 内容 |
 |---|---|
-| [再生](api/playback.md) | `ITnmsSoundPlayer`、`ISoundPlayerSession`、`ISoundPlayback`、`PlayOptions`、`SoundRecipients`、`PlaybackState`、`QueueBehavior`、`PlaybackError` |
+| [再生](api/playback.md) | `ITnmsSoundPlayer`、`ISoundPlayerSession`、`ISoundPlayback`、`ISoundPlaybackInfo`、`PlayOptions`、`SoundRecipients`、`PlaybackState`、`QueueBehavior`、`PlaybackError` |
 | [音声ソース](api/sources.md) | `IAudioFileService`、`INetworkAudioService`、`IPcmAudioStream`、`PcmAudioFormat`、`AudioMetadata`、独自ソースの実装 |

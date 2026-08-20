@@ -35,14 +35,9 @@ Entry point, resolved from `ISharpModuleManager` with `ITnmsSoundPlayer.Identity
 |---|---|---|
 | `Identity` | `const string` | Interface identity used when resolving the module |
 | `CreateSession(string ownerName)` | `ISoundPlayerSession` | Creates or returns the session for `ownerName`. Idempotent |
-| `CurrentPlayback` | `ISoundPlayback?` | The playback on air, or `null` when idle |
-| `Queue` | `IReadOnlyList<ISoundPlayback>` | Snapshot of pending playbacks in playback order, excluding `CurrentPlayback` |
+| `CurrentPlayback` | `ISoundPlaybackInfo?` | The playback on air, or `null` when idle. Read-only view |
+| `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | Snapshot of pending playbacks in playback order, excluding `CurrentPlayback`. Read-only views |
 | `StopAll()` | `void` | Stops the current playback and clears the queue across all sessions |
-| `SetHearing(IGameClient, bool)` | `void` | Enables or disables all sound player audio for one client |
-| `GetHearing(IGameClient)` | `bool` | Current hearing state for a client |
-| `DefaultHearing` | `bool` | Hearing state applied to clients connecting from now on. Does not affect already-connected clients |
-| `SetPlayerVolume(IGameClient, float)` | `void` | Server-side volume multiplier for one client. `0.0` mutes, `1.0` is unmodified |
-| `GetPlayerVolume(IGameClient)` | `float` | Current per-client multiplier |
 | `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` (the default) disables the spoof. See [Speaker Identity](#speaker-identity) |
 | `SpeakerName` | `string` | Name the speaker shows while nothing is playing. Blank resets it to `TnmsSpeaker`. See [Speaker Identity](#speaker-identity) |
 | `FileService` | `IAudioFileService` | See [Audio Sources](sources.md) |
@@ -92,16 +87,53 @@ session's queue limit.
 | `PlayUrl(string url, PlayOptions?, ISoundPlaybackCallback?)` | `ISoundPlayback` | Opens the URL through `NetworkService` and plays it |
 | `OwnPlaybacks` | `IReadOnlyList<ISoundPlayback>` | Snapshot of this session's playing and queued playbacks |
 | `StopAll()` | `void` | Stops and dequeues this session's playbacks only |
+| `SetHearing(bool, IEnumerable<IGameClient>?)` | `void` | Enables or disables **this session's** audio for those clients. `null` clients means everyone connected |
+| `GetHearing(IGameClient)` | `bool` | Whether that client hears this session |
+| `DefaultHearing` | `bool` | Hearing applied to clients connecting from now on. Does not affect already-connected clients |
+| `SetPlayerVolume(float, IEnumerable<IGameClient>?)` | `void` | Volume multiplier for this session's audio. `0.0` mutes, `1.0` is unmodified |
+| `GetPlayerVolume(IGameClient)` | `float` | That client's multiplier for this session |
 
 None of the `Play*` methods throw for media errors. A source that cannot be opened produces a
 playback that reaches `Failed` with the reason in `Error`.
+
+### Hearing and Volume Are Per Session
+
+Both are scoped to the session that owns the playback, so a player who muted the jukebox still
+hears round-start sounds from another plugin. There is no server-wide equivalent — the one
+deliberately global control is `ITnmsSoundPlayer.StopAll()`, since an admin silencing the server
+wants the sound gone, not future sounds suppressed.
+
+Three filters decide who hears a chunk, and all of them must pass:
+
+| Filter | Set by | Question it answers |
+|---|---|---|
+| `PlayOptions.Recipients` | the plugin | Who is this particular sound for? |
+| session hearing | the player | Do I want this plugin's audio at all? |
+| `PlayOptions.Volume` × session volume | both | How loud, for this listener? |
+
+`clients: null` means every connected client; an **empty sequence means none**. That asymmetry is
+deliberate: `SetHearing(false, clients.Where(...))` with a filter that happened to match nobody
+would otherwise mute the entire server.
+
+---
+
+## ISoundPlaybackInfo
+
+A read-only view of a sound, whoever started it. This is what `ITnmsSoundPlayer.CurrentPlayback` and
+`Queue` hand out, so that a plugin can display what is playing without being able to stop it. It
+carries `Id`, `OwnerName`, `State`, `Position`, `Duration`, `Volume` (get only) and `Error`.
+
+The split exists because "stop my music" commands collide otherwise: two plugins both calling
+`CurrentPlayback.Stop()` would cut each other off. Control comes from owning the playback — the
+handle your `Play` call returned, or `ISoundPlayerSession.OwnPlaybacks`. It is a guard rail rather
+than a boundary; the runtime object implements both interfaces, so a cast still gets through.
 
 ---
 
 ## ISoundPlayback
 
-Handle to one queued or playing sound. Control methods must be called from the game thread;
-property reads are thread-safe.
+`ISoundPlaybackInfo` plus the controls, handed only to the session that started the sound.
+Control methods must be called from the game thread; property reads are thread-safe.
 
 | Member | Type | Description |
 |---|---|---|

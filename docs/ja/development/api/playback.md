@@ -36,14 +36,9 @@ Queued --> Playing <--> Paused --> Completed
 |---|---|---|
 | `Identity` | `const string` | モジュール解決に使うインターフェース識別子 |
 | `CreateSession(string ownerName)` | `ISoundPlayerSession` | `ownerName` のセッションを作成または取得する。冪等 |
-| `CurrentPlayback` | `ISoundPlayback?` | 再生中のもの。アイドル時は `null` |
-| `Queue` | `IReadOnlyList<ISoundPlayback>` | 待機中の再生を再生順に並べたスナップショット。`CurrentPlayback` は含まない |
+| `CurrentPlayback` | `ISoundPlaybackInfo?` | 再生中のもの。アイドル時は `null`。読み取り専用のビュー |
+| `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | 待機中の再生を再生順に並べたスナップショット。`CurrentPlayback` は含まない。読み取り専用のビュー |
 | `StopAll()` | `void` | 全セッションの再生を停止し、キューを空にする |
-| `SetHearing(IGameClient, bool)` | `void` | そのクライアントに対するサウンドプレイヤーの音声全体を on/off する |
-| `GetHearing(IGameClient)` | `bool` | 現在の受聴状態 |
-| `DefaultHearing` | `bool` | 以後接続してくるクライアントに適用される受聴状態。接続済みのクライアントには影響しない |
-| `SetPlayerVolume(IGameClient, float)` | `void` | クライアント単位のサーバー側音量倍率。`0.0` でミュート、`1.0` で無加工 |
-| `GetPlayerVolume(IGameClient)` | `float` | 現在の倍率 |
 | `SpeakerSteamId` | `ulong` | スピーカーボットが偽装する SteamID64。既定の `0` では偽装しない。[スピーカーの識別情報](#スピーカーの識別情報)を参照 |
 | `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前。空文字を入れると `TnmsSpeaker` に戻る。[スピーカーの識別情報](#スピーカーの識別情報)を参照 |
 | `FileService` | `IAudioFileService` | [音声ソース](sources.md)を参照 |
@@ -94,15 +89,54 @@ _player.SpeakerName = "Jukebox";
 | `PlayUrl(string url, PlayOptions?, ISoundPlaybackCallback?)` | `ISoundPlayback` | `NetworkService` で URL を開いて再生する |
 | `OwnPlaybacks` | `IReadOnlyList<ISoundPlayback>` | このセッションの再生中・待機中のスナップショット |
 | `StopAll()` | `void` | このセッションの再生だけを停止しキューから外す |
+| `SetHearing(bool, IEnumerable<IGameClient>?)` | `void` | **このセッションの**音声を対象クライアントに対して on/off する。clients が `null` なら接続中の全員 |
+| `GetHearing(IGameClient)` | `bool` | そのクライアントがこのセッションの音を聞くか |
+| `DefaultHearing` | `bool` | 以後接続してくるクライアントに適用される受聴状態。接続済みには影響しない |
+| `SetPlayerVolume(float, IEnumerable<IGameClient>?)` | `void` | このセッションの音声に対する音量倍率。`0.0` でミュート、`1.0` で無加工 |
+| `GetPlayerVolume(IGameClient)` | `float` | そのクライアントのこのセッションに対する倍率 |
 
 `Play*` はいずれもメディア側の問題では例外を投げない。
 開けなかったソースは、理由を `Error` に持ったまま `Failed` に到達する再生として返る。
+
+### 受聴と音量はセッション単位
+
+どちらも再生を所有するセッションに紐づく。
+ジュークボックスをミュートしたプレイヤーが、別プラグインのラウンド開始音は聞こえたままでいられる。
+サーバー全体に効く同等の API は用意していない。
+意図的にグローバルなのは `ITnmsSoundPlayer.StopAll()` だけである。
+管理者がサーバーを黙らせたいときに欲しいのは「今鳴っている音を止めること」であって「以後の音を抑制すること」ではないからである。
+
+誰にチャンクが届くかは3つのフィルタで決まり、**すべてを通過する必要がある**。
+
+| フィルタ | 決めるのは | 答える問い |
+|---|---|---|
+| `PlayOptions.Recipients` | プラグイン | この音は誰向けか |
+| セッションの受聴 | プレイヤー | このプラグインの音を聞きたいか |
+| `PlayOptions.Volume` × セッションの音量 | 両方 | この聞き手にどれくらいの音量で |
+
+`clients: null` は接続中の全員を指し、**空のシーケンスは誰も指さない**。
+この非対称は意図的である。
+`SetHearing(false, clients.Where(...))` のフィルタがたまたま0件だったときに、サーバー全員をミュートしてしまわないようにするため。
+
+---
+
+## ISoundPlaybackInfo
+
+誰が開始したかによらず参照できる、読み取り専用のビュー。
+`ITnmsSoundPlayer.CurrentPlayback` と `Queue` が返すのはこちらである。
+何が鳴っているかを表示はできるが、止めることはできない。
+持っているのは `Id`、`OwnerName`、`State`、`Position`、`Duration`、`Volume`（getのみ）、`Error`。
+
+分けてある理由は、「自分の音楽を止める」コマンド同士が衝突するからである。
+2つのプラグインがどちらも `CurrentPlayback.Stop()` を呼べば、互いの音を切ってしまう。
+操作できるのは所有している再生だけで、`Play` の戻り値か `ISoundPlayerSession.OwnPlaybacks` から得る。
+ただしこれは境界ではなく手すりである。実体は両方のインターフェースを実装しているので、キャストすれば通り抜けられる。
 
 ---
 
 ## ISoundPlayback
 
-キューに積まれた、あるいは再生中の音のハンドル。
+`ISoundPlaybackInfo` に制御を加えたもので、その音を開始したセッションだけが受け取る。
 制御メソッドはゲームスレッドから呼ぶ。プロパティの読み取りはスレッドセーフである。
 
 | メンバー | 型 | 説明 |

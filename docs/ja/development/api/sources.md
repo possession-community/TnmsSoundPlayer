@@ -77,10 +77,27 @@ yt-dlp の出力を ffmpeg に直接パイプしており、パイプは巻き�
 
 ### AudioMetadata
 
-`sealed record AudioMetadata(string? Title, TimeSpan? Duration, string? Uploader)`
+`sealed record AudioMetadata(string? Title, TimeSpan? Duration, string? Uploader, bool IsLive = false)`
 
-すべてのフィールドが nullable である。
+前の3つは nullable である。
 yt-dlp がすべてのサイトについて全項目を返すとは限らないためである。
+`IsLive` は終端の無いソース、すなわち配信中の放送やラジオストリームであることを示す。
+
+---
+
+### ライブソース
+
+ライブソースはストリーミング経路で普通に再生できる。
+ただし設計上考慮すべき点が3つある。
+
+- **`DownloadFirst` は無視される。** ダウンロードが終わる瞬間が来ないので、素直に従うと放送が終わるまで
+  ブロックしてしまう。`IsLive` で検出してストリーミングに切り替え、その旨をログに出す
+- **停止するまで再生スロットを占有し続ける。** 後ろに積まれたものが自然に再生されることはない。
+  `QueueBehavior.Interrupt` か明示的な `Stop` と組み合わせて使う
+- **切断は正常終了に見える。** ffmpeg が終了して `Completed` に到達し、再接続はしない。
+  復帰させたい場合は `OnFinished` で拾う
+
+再生は放送の先頭からではなく、参加した時点から始まる。
 
 ---
 

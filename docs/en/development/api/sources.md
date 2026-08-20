@@ -74,9 +74,27 @@ are game-thread only.
 
 ### AudioMetadata
 
-`sealed record AudioMetadata(string? Title, TimeSpan? Duration, string? Uploader)`
+`sealed record AudioMetadata(string? Title, TimeSpan? Duration, string? Uploader, bool IsLive = false)`
 
-Every field is nullable: yt-dlp does not report all of them for every site.
+The first three are nullable: yt-dlp does not report all of them for every site. `IsLive` marks a
+source with no end — a broadcast in progress or a radio stream.
+
+---
+
+### Live Sources
+
+Live sources play through the streaming path and work as you would expect, with three consequences
+worth designing around:
+
+- **`DownloadFirst` is ignored for them.** There is nothing to finish downloading, so honouring it
+  would block until the broadcast ended. The player detects this through `IsLive` and streams
+  instead, logging that it did.
+- **They hold the single playback slot until stopped.** Nothing queued behind a live source will
+  ever play on its own. Pair it with `QueueBehavior.Interrupt` or an explicit `Stop`.
+- **A dropped connection reads as a normal end.** ffmpeg exits, the playback reaches `Completed`,
+  and nothing reconnects. Watch for that in `OnFinished` if you want it to come back.
+
+Playback starts from the live edge, not from the beginning of the broadcast.
 
 ---
 

@@ -85,12 +85,9 @@ _player.SpeakerName = "Jukebox";
 | Member | Type | Purpose |
 |---|---|---|
 | `CreateSession(string)` | `ISoundPlayerSession` | Get (or create) your plugin's session |
-| `CurrentPlayback` | `ISoundPlayback?` | The playback on air, or `null` when idle |
-| `Queue` | `IReadOnlyList<ISoundPlayback>` | Pending playbacks in playback order |
+| `CurrentPlayback` | `ISoundPlaybackInfo?` | The playback on air, or `null` when idle. Read-only: it may not be yours |
+| `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | Pending playbacks in playback order, read-only |
 | `StopAll()` | `void` | Stop everything across all sessions (administrative) |
-| `SetHearing` / `GetHearing` | `void` / `bool` | Per-client on/off for all sound player audio |
-| `DefaultHearing` | `bool` | Hearing state applied to clients that connect later |
-| `SetPlayerVolume` / `GetPlayerVolume` | `void` / `float` | Per-client volume multiplier |
 | `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` disables the spoof |
 | `SpeakerName` | `string` | Name the speaker shows while nothing is playing |
 | `FileService` | `IAudioFileService` | Open local files and buffers as PCM |
@@ -226,12 +223,23 @@ A paused playback still occupies the single playback slot, so queued sounds keep
 ### Mute a Player
 
 ```csharp
-_player.SetHearing(client, false);      // this client hears nothing from the sound player
-_player.SetPlayerVolume(client, 0.5f);  // or just quieter
+session.SetHearing(false, [client]);      // this client hears nothing from YOUR plugin
+session.SetPlayerVolume(0.5f, [client]);  // or just quieter
 ```
 
-These are global per client, independent of any individual playback, and are applied server-side
-before encoding. Set `DefaultHearing` to control what newly connecting clients get.
+Both are **per session**, so muting your plugin leaves every other plugin's audio alone — a player
+who turned off the jukebox still hears round-start sounds. They apply to playbacks already on air as
+well as future ones, and are applied server-side before encoding. `DefaultHearing` decides what
+clients connecting from now on get.
+
+Omit the client list to apply to everyone currently connected:
+
+```csharp
+session.SetHearing(false);   // nobody hears this plugin until you turn it back on
+```
+
+An **empty** list means nobody, unlike `null`. So a filter that happened to match no one cannot
+mute the server by accident.
 
 ### Check Whether Tools Are Available
 
@@ -252,5 +260,5 @@ automatically at module start, so a missing tool usually means the download fail
 
 | Page | Contents |
 |---|---|
-| [Playback](api/playback.md) | `ITnmsSoundPlayer`, `ISoundPlayerSession`, `ISoundPlayback`, `PlayOptions`, `SoundRecipients`, `PlaybackState`, `QueueBehavior`, `PlaybackError` |
+| [Playback](api/playback.md) | `ITnmsSoundPlayer`, `ISoundPlayerSession`, `ISoundPlayback`, `ISoundPlaybackInfo`, `PlayOptions`, `SoundRecipients`, `PlaybackState`, `QueueBehavior`, `PlaybackError` |
 | [Audio Sources](api/sources.md) | `IAudioFileService`, `INetworkAudioService`, `IPcmAudioStream`, `PcmAudioFormat`, `AudioMetadata`, feeding custom audio |

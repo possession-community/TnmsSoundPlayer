@@ -17,7 +17,7 @@ player, so clients can mute it and adjust its volume with the normal in-game con
 - Handle-based API: stop, pause, resume, seek, live volume changes, and completion events
 - A single server-wide priority queue, so plugins never cut each other off unintentionally
 - Per-recipient targeting: everyone, one client, a fixed set, or a live predicate
-- Per-client hearing toggle and server-side volume multiplier
+- Per-client hearing toggle and server-side volume multiplier, scoped per plugin
 - Custom sources via `IPcmAudioStream` for TTS or procedurally generated audio
 - ffmpeg, ffprobe, yt-dlp and deno are downloaded automatically at first start
 - No dependency on TnmsPluginFoundation
@@ -104,6 +104,11 @@ commands in chat with `!`, or in console with the `ms_` prefix.
 | `sp_seek [seconds]` | Seek the current playback, or print its seekable range |
 | `sp_meta <url>` | Fetch metadata without playing; the result goes to the server console |
 | `sp_stop` | Stop whatever is playing |
+| `sp_session <a\|b>` | Switch which of two sessions the commands drive, standing in for two plugins |
+| `sp_stopsession` | Stop only this session's playbacks — the path a plugin uses |
+| `sp_stopall` | Stop every session's playbacks — the administrative path |
+| `sp_hear <on\|off>` | Toggle whether you hear this session |
+| `sp_vol <0.0-4.0>` | Your volume multiplier for this session |
 | `sp_status` | Tool availability, speaker identity, current playback and queue |
 | `sp_spk_name [name]` | Show or set the resting speaker name |
 | `sp_spk_steam [steamid64]` | Show or set the SteamID64 the speaker masquerades as |
