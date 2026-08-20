@@ -349,6 +349,23 @@ internal sealed class SpeakerManager : IGameListener
     {
         SpoofSteamId = steamId;
         ApplySpoof();
+
+        // Changing identity on a bot clients already have costs one full update: the row has to be
+        // rebuilt around the new xuid. It resets client-side prediction (the view snaps), so it is
+        // confined to this explicit call — bot creation does not need it, since the first snapshot
+        // clients ever receive of the bot already carries the disguise.
+        if (BotClient is null)
+        {
+            return;
+        }
+
+        foreach (var connected in _clients.GetGameClientList(true))
+        {
+            if (!connected.IsFakeClient && !connected.IsHltv)
+            {
+                connected.ForceFullUpdate();
+            }
+        }
     }
 
     /// <summary>Makes the speaker bot look like a real player rather than a bot.</summary>
@@ -360,24 +377,18 @@ internal sealed class SpeakerManager : IGameListener
         }
 
         ApplyEntityTraits();
-
-        if (SpoofSteamId != 0)
-        {
-            SpeakerXuidChanged?.Invoke(SpoofSteamId);
-        }
-
-        // Resend everything to clients that already have the bot in their snapshot, so the disguise
-        // is visible without a reconnect. Only fires on bot creation and when the API sets an id.
-        foreach (var connected in _clients.GetGameClientList(true))
-        {
-            if (!connected.IsFakeClient && !connected.IsHltv)
-            {
-                connected.ForceFullUpdate();
-            }
-        }
-
         StartReapplyTimer();
 
+        if (SpoofSteamId == 0)
+        {
+            _logger.LogInformation(
+                "Speaker bot in slot {Slot} is left as a plain bot; set ITnmsSoundPlayer.SpeakerSteamId "
+                + "to a SteamID64 you control to hide it on the scoreboard.",
+                _botSlot);
+            return;
+        }
+
+        SpeakerXuidChanged?.Invoke(SpoofSteamId);
         _logger.LogInformation(
             "Speaker bot disguise applied: steamId={SteamId} (slot {Slot}).", SpoofSteamId, _botSlot);
     }
@@ -399,10 +410,16 @@ internal sealed class SpeakerManager : IGameListener
             return;
         }
 
-        if (SpoofSteamId != 0)
+        // All of this is one package. Clearing the bot flags without a real SteamID64 leaves a client
+        // the scoreboard cannot resolve, and the row vanishes entirely rather than falling back to
+        // "BOT" (verified in-game 2026-08-20). A visible bot beats an invisible speaker, so with no
+        // id set the bot is left exactly as the game made it.
+        if (SpoofSteamId == 0)
         {
-            controller.SetNetVar("m_steamID", SpoofSteamId);
+            return;
         }
+
+        controller.SetNetVar("m_steamID", SpoofSteamId);
 
         // m_szClan is a CUtlSymbolLarge, so use the dedicated API, not a raw string SetNetVar.
         controller.SetClanTag(string.Empty);
