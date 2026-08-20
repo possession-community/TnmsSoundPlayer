@@ -42,6 +42,8 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         RegisterCommand("sp_meta", OnMeta);
         RegisterCommand("sp_stop", OnStop);
         RegisterCommand("sp_status", OnStatus);
+        RegisterCommand("sp_spk_name", OnSpeakerName);
+        RegisterCommand("sp_spk_steam", OnSpeakerSteam);
 
         _logger.LogInformation("TnmsSoundPlayerTest initialized, {Count} sp_* commands registered.", _commands.Count);
         return true;
@@ -119,7 +121,10 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         }
 
         var session = _player.CreateSession(SessionOwner);
-        var playback = session.PlayUrl(url, new PlayOptions { Volume = volume }, new ReportToClient(client));
+        var playback = session.PlayUrl(
+            url,
+            new PlayOptions { Volume = volume, SpeakerName = $"SoundPlayer: by {client.Name}" },
+            new ReportToClient(client));
 
         Reply(client, $"queued: {Describe(playback)}");
         return ECommandAction.Stopped;
@@ -186,6 +191,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     {
         var d = _player.Diagnostics;
         Reply(client, $"ffmpeg={(d.FfmpegAvailable ? d.FfmpegPath : "MISSING")} yt-dlp={(d.YtdlpAvailable ? d.YtdlpPath : "MISSING")} queue={d.QueueLength} sessions={d.ActiveSessionCount}");
+        Reply(client, $"speaker: name='{_player.SpeakerName}' steamId={_player.SpeakerSteamId}");
         Reply(client, _player.CurrentPlayback is { } current ? $"current: {Describe(current)}" : "current: (idle)");
 
         var queue = _player.Queue;
@@ -194,6 +200,34 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
             Reply(client, $"queue[{i}]: {Describe(queue[i])}");
         }
 
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>Sets the resting speaker name (what the scoreboard shows while nothing plays).</summary>
+    private ECommandAction OnSpeakerName(IGameClient client, StringCommand command)
+    {
+        if (command.ArgCount < 1)
+        {
+            Reply(client, $"speaker name='{_player.SpeakerName}' (usage: sp_spk_name <name>)");
+            return ECommandAction.Stopped;
+        }
+
+        _player.SpeakerName = command.ArgString;
+        Reply(client, $"speaker name='{_player.SpeakerName}'");
+        return ECommandAction.Stopped;
+    }
+
+    /// <summary>Sets the SteamID64 the speaker bot masquerades as. 0 drops the spoof.</summary>
+    private ECommandAction OnSpeakerSteam(IGameClient client, StringCommand command)
+    {
+        if (command.ArgCount < 1 || !ulong.TryParse(command.GetArg(1), out var steamId))
+        {
+            Reply(client, $"speaker steamId={_player.SpeakerSteamId} (usage: sp_spk_steam <steamid64|0>)");
+            return ECommandAction.Stopped;
+        }
+
+        _player.SpeakerSteamId = steamId;
+        Reply(client, $"speaker steamId={_player.SpeakerSteamId}");
         return ECommandAction.Stopped;
     }
 }

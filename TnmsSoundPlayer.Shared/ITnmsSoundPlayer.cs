@@ -53,6 +53,13 @@ public interface ITnmsSoundPlayer
     /// </summary>
     ulong SpeakerSteamId { get; set; }
 
+    /// <summary>
+    /// Name the speaker shows on the scoreboard while nothing is playing. Blank resets it to the
+    /// built-in default. A playback can take the name over for as long as it is audible through
+    /// <see cref="PlayOptions.SpeakerName"/>; when it ends, the speaker goes back to this name.
+    /// </summary>
+    string SpeakerName { get; set; }
+
     /// <summary>Opens PCM streams from local files or in-memory encoded buffers (ffmpeg).</summary>
     IAudioFileService FileService { get; }
 

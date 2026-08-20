@@ -1,4 +1,3 @@
-using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Sharp.Shared;
 using Sharp.Shared.Enums;
@@ -11,41 +10,6 @@ using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 
 namespace TnmsSoundPlayer.Core;
-
-/// <summary>
-/// Individually toggleable traits that make the speaker bot look like a real player.
-/// The scoreboard "BOT" marker needs all of these together: dropping any single one brought it back
-/// (verified in-game 2026-08-17), so <see cref="All"/> is the working configuration.
-/// Bit 0 is deliberately unused: it was a userinfo stringtable rewrite (fakeplayer=false + spoofed
-/// xuid). It never took effect — the written entry could not be read back — and mask 127 was not
-/// needed, so the blind once-per-second write was removed. Bit values are kept stable so the masks
-/// recorded in IMPLEMENTATION_PLAN.md still mean the same thing.
-/// </summary>
-[Flags]
-internal enum SpeakerDisguise
-{
-    None = 0,
-
-    /// <summary>Set the controller's networked m_steamID to the spoof id.</summary>
-    ControllerSteamId = 1 << 1,
-
-    /// <summary>Clear m_szClan.</summary>
-    ClanTag = 1 << 2,
-
-    /// <summary>Clear FL_FAKECLIENT (0x100) from the controller's m_fFlags.</summary>
-    ControllerFlags = 1 << 3,
-
-    /// <summary>Set m_iPawnBotDifficulty to -1 (the value real players carry).</summary>
-    BotDifficulty = 1 << 4,
-
-    /// <summary>Clear m_bControllingBot.</summary>
-    ControllingBot = 1 << 5,
-
-    /// <summary>Clear FL_BOT (0x10) from the pawn's m_fFlags.</summary>
-    PawnFlags = 1 << 6,
-
-    All = ControllerSteamId | ClanTag | ControllerFlags | BotDifficulty | ControllingBot | PawnFlags,
-}
 
 /// <summary>
 /// Maintains the resident speaker bot: requested via the game's own bot manager
@@ -86,7 +50,9 @@ internal sealed class SpeakerManager : IGameListener
     private readonly IClientManager _clients;
     private readonly IHookManager _hooks;
 
-    private string _desiredName = DefaultBotName;
+    private string _speakerName = DefaultBotName;
+    private string? _nameOverride;
+    private string? _appliedName;
     private int _botSlot = -1;
     private bool _awaitingBot;
     private DateTime _awaitingDeadline;
@@ -95,15 +61,6 @@ internal sealed class SpeakerManager : IGameListener
     private int _spectatorCorrections;
     private int _botRequestAttempts;
 
-    // Pre-spoof values, captured lazily the first time each trait is applied. Turning a trait back off
-    // restores these, so a mask change actually isolates one trait instead of leaving earlier edits behind.
-    private ulong? _originalSteamId;
-    private string? _originalClanTag;
-    private EntityFlags? _originalControllerFlags;
-    private int? _originalBotDifficulty;
-    private bool? _originalControllingBot;
-    private EntityFlags? _originalPawnFlags;
-
     /// <summary>
     /// SteamID64 the speaker bot masquerades as (0 = no spoofing, the default). Set through
     /// ITnmsSoundPlayer.SpeakerSteamId; deliberately not hardcoded, since it names a real account.
@@ -111,8 +68,19 @@ internal sealed class SpeakerManager : IGameListener
     /// </summary>
     public ulong SpoofSteamId { get; private set; }
 
-    /// <summary>Which disguise traits are currently applied.</summary>
-    public SpeakerDisguise Disguise { get; private set; } = SpeakerDisguise.All;
+    /// <summary>
+    /// Name the speaker bot carries whenever no playback overrides it. Set through
+    /// ITnmsSoundPlayer.SpeakerName; blank falls back to <see cref="DefaultBotName" />.
+    /// </summary>
+    public string SpeakerName
+    {
+        get => _speakerName;
+        set
+        {
+            _speakerName = string.IsNullOrWhiteSpace(value) ? DefaultBotName : value;
+            ApplyName();
+        }
+    }
 
     /// <summary>Raised on the game thread with the new speaker slot (-1 when the bot is gone).</summary>
     public event Action<int>? SpeakerSlotChanged;
@@ -189,6 +157,45 @@ internal sealed class SpeakerManager : IGameListener
         Forget(); // The engine tears the client down with the map; just drop our reference.
     }
 
+    // ---- name ----
+
+    /// <summary>
+    /// Sets the per-playback name override, or clears it with null. The core calls this every pump
+    /// tick with the name of whatever is currently audible, so it must stay cheap: the actual
+    /// SetName only happens when the resolved name really changes.
+    /// </summary>
+    public void SetNameOverride(string? name)
+    {
+        var normalized = string.IsNullOrWhiteSpace(name) ? null : name;
+        if (_nameOverride == normalized)
+        {
+            return;
+        }
+
+        _nameOverride = normalized;
+        ApplyName();
+    }
+
+    private string ResolvedName => _nameOverride ?? _speakerName;
+
+    private void ApplyName()
+    {
+        if (BotClient is not { } client)
+        {
+            _appliedName = null;
+            return;
+        }
+
+        var name = ResolvedName;
+        if (_appliedName == name)
+        {
+            return;
+        }
+
+        client.SetName(name);
+        _appliedName = name;
+    }
+
     // ---- bot management (game thread only) ----
 
     /// <summary>Requests the speaker bot via bot_add if missing; renames it when it already exists.</summary>
@@ -196,15 +203,15 @@ internal sealed class SpeakerManager : IGameListener
     {
         if (name is not null)
         {
-            _desiredName = name;
+            SpeakerName = name;
         }
 
-        // Re-arm the watchdog: a manual sp_spk_bot after sp_spk_kick should start respawning again.
+        // Re-arm the watchdog: a manual respawn after a kick should start requesting again.
         StartWatchdog();
 
-        if (BotClient is { } existing)
+        if (BotClient is not null)
         {
-            existing.SetName(_desiredName);
+            ApplyName();
             return;
         }
 
@@ -327,9 +334,9 @@ internal sealed class SpeakerManager : IGameListener
             return;
         }
 
-        client.SetName(_desiredName);
+        ApplyName();
         client.GetPlayerController()?.SwitchTeam(CStrikeTeam.Spectator);
-        _logger.LogInformation("Speaker bot '{Name}' configured in slot {Slot} (spectator).", _desiredName, _botSlot);
+        _logger.LogInformation("Speaker bot '{Name}' configured in slot {Slot} (spectator).", ResolvedName, _botSlot);
 
         SpeakerSlotChanged?.Invoke(_botSlot);
 
@@ -344,17 +351,7 @@ internal sealed class SpeakerManager : IGameListener
         ApplySpoof();
     }
 
-    /// <summary>Selects which disguise traits to apply and re-applies them immediately.</summary>
-    public void SetDisguise(SpeakerDisguise disguise)
-    {
-        Disguise = disguise;
-        ApplySpoof();
-    }
-
-    /// <summary>
-    /// Makes the speaker bot look like a real player, applying whichever traits <see cref="Disguise"/>
-    /// selects.
-    /// </summary>
+    /// <summary>Makes the speaker bot look like a real player rather than a bot.</summary>
     public void ApplySpoof()
     {
         if (BotClient is null)
@@ -370,7 +367,7 @@ internal sealed class SpeakerManager : IGameListener
         }
 
         // Resend everything to clients that already have the bot in their snapshot, so the disguise
-        // is visible without a reconnect. Only fires on bot creation and on the debug commands.
+        // is visible without a reconnect. Only fires on bot creation and when the API sets an id.
         foreach (var connected in _clients.GetGameClientList(true))
         {
             if (!connected.IsFakeClient && !connected.IsHltv)
@@ -382,83 +379,18 @@ internal sealed class SpeakerManager : IGameListener
         StartReapplyTimer();
 
         _logger.LogInformation(
-            "Speaker bot disguise applied: steamId={SteamId} traits={Traits} (slot {Slot}).",
-            SpoofSteamId, Disguise, _botSlot);
-    }
-
-    /// <summary>Reads the speaker bot's userinfo entry back, or null when absent/unparseable.</summary>
-    private CMsgPlayerInfo? ReadUserInfo()
-    {
-        var raw = ReadUserInfoBytes();
-        if (raw is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return CMsgPlayerInfo.Parser.ParseFrom(raw);
-        }
-        catch (InvalidProtocolBufferException)
-        {
-            return null;
-        }
-    }
-
-    private byte[]? ReadUserInfoBytes()
-    {
-        if (FindUserInfoIndex() is not { } index)
-        {
-            return null;
-        }
-
-        var table = _modSharp.FindStringTable("userinfo");
-        if (table is null)
-        {
-            return null;
-        }
-
-        unsafe
-        {
-            var userData = table.GetStringUserData(index);
-            if (userData is null || userData->Data is null || userData->Size <= 0)
-            {
-                return null;
-            }
-
-            return new ReadOnlySpan<byte>(userData->Data, userData->Size).ToArray();
-        }
-    }
-
-    /// <summary>Index of the speaker bot's userinfo entry, or null when it cannot be located.</summary>
-    private int? FindUserInfoIndex()
-    {
-        var table = _modSharp.FindStringTable("userinfo");
-        if (table is null)
-        {
-            _logger.LogWarning("userinfo stringtable not found; cannot spoof the speaker bot.");
-            return null;
-        }
-
-        var index = table.FindStringIndex(_botSlot.ToString());
-        if (index < 0 && _botSlot < table.GetStringCount())
-        {
-            index = _botSlot;
-        }
-        if (index < 0)
-        {
-            _logger.LogWarning(
-                "userinfo entry for slot {Slot} not found (count={Count}).", _botSlot, table.GetStringCount());
-            return null;
-        }
-
-        return index;
+            "Speaker bot disguise applied: steamId={SteamId} (slot {Slot}).", SpoofSteamId, _botSlot);
     }
 
     /// <summary>
-    /// Applies the entity-side traits. Also the re-apply timer body: the controller re-derives its
-    /// scoreboard mirror fields from the pawn, so a one-shot write can silently revert
-    /// (m_iPawnBotDifficulty does exactly that — it is back to the bot value within a tick).
+    /// Applies the traits that keep the scoreboard from marking the speaker as a bot. Also the
+    /// re-apply timer body: the controller re-derives its scoreboard mirror fields from the pawn, so a
+    /// one-shot write can silently revert (m_iPawnBotDifficulty does exactly that — it is back to the
+    /// bot value within a tick).
+    /// The three that demonstrably drive the "BOT" marker are m_steamID, the controller's FL_FAKECLIENT
+    /// and the pawn's FL_BOT; the rest were measured as no-ops on a bot_add bot (empty clan tag,
+    /// m_bControllingBot already false) but are written anyway, because the marker came back in testing
+    /// whenever the set was narrowed (verified in-game 2026-08-17).
     /// </summary>
     private void ApplyEntityTraits()
     {
@@ -467,80 +399,28 @@ internal sealed class SpeakerManager : IGameListener
             return;
         }
 
-        if (Disguise.HasFlag(SpeakerDisguise.ControllerSteamId) && SpoofSteamId != 0)
+        if (SpoofSteamId != 0)
         {
-            _originalSteamId ??= controller.GetNetVar<ulong>("m_steamID");
             controller.SetNetVar("m_steamID", SpoofSteamId);
         }
-        else if (_originalSteamId is { } steamId)
-        {
-            controller.SetNetVar("m_steamID", steamId);
-            _originalSteamId = null;
-        }
 
-        if (Disguise.HasFlag(SpeakerDisguise.ClanTag))
-        {
-            _originalClanTag ??= controller.ClanTag;
-            // m_szClan is a CUtlSymbolLarge, so use the dedicated API, not a raw string SetNetVar.
-            controller.SetClanTag(string.Empty);
-        }
-        else if (_originalClanTag is { } clanTag)
-        {
-            controller.SetClanTag(clanTag);
-            _originalClanTag = null;
-        }
-
-        if (Disguise.HasFlag(SpeakerDisguise.ControllerFlags))
-        {
-            _originalControllerFlags ??= controller.Flags;
-            SetFlags(controller, controller.Flags & ~EntityFlags.FakeClient);
-        }
-        else if (_originalControllerFlags is { } controllerFlags)
-        {
-            SetFlags(controller, controllerFlags);
-            _originalControllerFlags = null;
-        }
+        // m_szClan is a CUtlSymbolLarge, so use the dedicated API, not a raw string SetNetVar.
+        controller.SetClanTag(string.Empty);
+        SetFlags(controller, controller.Flags & ~EntityFlags.FakeClient);
 
         if (controller.FindNetVar("m_iPawnBotDifficulty"))
         {
-            if (Disguise.HasFlag(SpeakerDisguise.BotDifficulty))
-            {
-                _originalBotDifficulty ??= controller.GetNetVar<int>("m_iPawnBotDifficulty");
-                controller.SetNetVar("m_iPawnBotDifficulty", HumanBotDifficulty);
-            }
-            else if (_originalBotDifficulty is { } difficulty)
-            {
-                controller.SetNetVar("m_iPawnBotDifficulty", difficulty);
-                _originalBotDifficulty = null;
-            }
+            controller.SetNetVar("m_iPawnBotDifficulty", HumanBotDifficulty);
         }
 
         if (controller.FindNetVar("m_bControllingBot"))
         {
-            if (Disguise.HasFlag(SpeakerDisguise.ControllingBot))
-            {
-                _originalControllingBot ??= controller.GetNetVar<bool>("m_bControllingBot");
-                controller.SetNetVar("m_bControllingBot", false);
-            }
-            else if (_originalControllingBot is { } controllingBot)
-            {
-                controller.SetNetVar("m_bControllingBot", controllingBot);
-                _originalControllingBot = null;
-            }
+            controller.SetNetVar("m_bControllingBot", false);
         }
 
         if (controller.GetPawn() is { } pawn)
         {
-            if (Disguise.HasFlag(SpeakerDisguise.PawnFlags))
-            {
-                _originalPawnFlags ??= pawn.Flags;
-                SetFlags(pawn, pawn.Flags & ~EntityFlags.Bot);
-            }
-            else if (_originalPawnFlags is { } pawnFlags)
-            {
-                SetFlags(pawn, pawnFlags);
-                _originalPawnFlags = null;
-            }
+            SetFlags(pawn, pawn.Flags & ~EntityFlags.Bot);
         }
     }
 
@@ -613,7 +493,7 @@ internal sealed class SpeakerManager : IGameListener
 
     private void StartReapplyTimer()
     {
-        if (_reapplyTimer is not null || Disguise == SpeakerDisguise.None)
+        if (_reapplyTimer is not null)
         {
             return;
         }
@@ -629,74 +509,6 @@ internal sealed class SpeakerManager : IGameListener
             _modSharp.StopTimer(timer);
             _reapplyTimer = null;
         }
-    }
-
-    /// <summary>Reads back what the server currently holds, for comparing against what the client shows.</summary>
-    public IReadOnlyList<string> Probe()
-    {
-        var lines = new List<string>();
-
-        if (BotClient is not { } bot)
-        {
-            lines.Add("bot: (none)");
-            return lines;
-        }
-
-        lines.Add($"client: slot={_botSlot} userId={bot.UserId} steamId={bot.SteamId} fake={bot.IsFakeClient}");
-
-        if (bot.GetPlayerController() is { } controller)
-        {
-            var difficulty = controller.FindNetVar("m_iPawnBotDifficulty")
-                ? controller.GetNetVar<int>("m_iPawnBotDifficulty").ToString()
-                : "(absent)";
-            var controllingBot = controller.FindNetVar("m_bControllingBot")
-                ? controller.GetNetVar<bool>("m_bControllingBot").ToString()
-                : "(absent)";
-
-            var unkickable = controller.FindNetVar("m_bCannotBeKicked")
-                ? controller.GetNetVar<bool>("m_bCannotBeKicked").ToString()
-                : "(absent)";
-
-            lines.Add($"controller: team={controller.Team} connected={controller.ConnectedState} "
-                + $"cannotBeKicked={unkickable} specCorrections={_spectatorCorrections}");
-            lines.Add($"controller: flags={controller.Flags} m_steamID={controller.GetNetVar<ulong>("m_steamID")}");
-            lines.Add($"controller: botDifficulty={difficulty} controllingBot={controllingBot} clan='{controller.ClanTag}'");
-            lines.Add(controller.GetPawn() is { } pawn
-                ? $"pawn: {pawn.GetSchemaClassname()} team={pawn.Team} alive={pawn.IsAlive} flags={pawn.Flags}"
-                : "pawn: (none)");
-            lines.Add($"pawn kinds: player={controller.GetPlayerPawn() is not null} "
-                + $"observer={controller.GetObserverPawn() is not null}");
-        }
-        else
-        {
-            lines.Add("controller: (none)");
-        }
-
-        lines.Add(ProbeUserInfo());
-        lines.Add($"pre-spoof: flags={Describe(_originalControllerFlags)} steamId={Describe(_originalSteamId)} "
-            + $"clan='{_originalClanTag ?? "(not captured)"}' botDifficulty={Describe(_originalBotDifficulty)} "
-            + $"controllingBot={Describe(_originalControllingBot)} pawnFlags={Describe(_originalPawnFlags)}");
-        return lines;
-    }
-
-    /// <summary>Renders a lazily-captured pre-spoof value, distinguishing "not captured yet" from a real value.</summary>
-    private static string Describe<T>(T? value) where T : struct
-        => value?.ToString() ?? "(not captured)";
-
-    private string ProbeUserInfo()
-    {
-        if (ReadUserInfoBytes() is not { } raw)
-        {
-            return "userinfo: (entry not readable)";
-        }
-
-        var info = ReadUserInfo();
-        var body = info is null
-            ? "unparseable"
-            : $"name='{info.Name}' xuid={info.Xuid} steamid={info.Steamid} "
-                + $"userid={info.Userid} fakeplayer={info.Fakeplayer}";
-
-        return $"userinfo: size={raw.Length} {body}";
     }
 
     /// <summary>Kicks the speaker bot if one exists, and stops the watchdog from bringing it back.</summary>
@@ -724,7 +536,10 @@ internal sealed class SpeakerManager : IGameListener
     {
         _awaitingBot = false;
         StopReapplyTimer();
-        ForgetOriginals(); // They describe an entity that no longer exists.
+
+        // Describes a client that no longer exists; the next bot must be named from scratch.
+        _appliedName = null;
+        _spectatorCorrections = 0;
 
         if (_botSlot < 0)
         {
@@ -732,16 +547,5 @@ internal sealed class SpeakerManager : IGameListener
         }
         _botSlot = -1;
         SpeakerSlotChanged?.Invoke(-1);
-    }
-
-    private void ForgetOriginals()
-    {
-        _originalSteamId = null;
-        _originalClanTag = null;
-        _originalControllerFlags = null;
-        _originalBotDifficulty = null;
-        _originalControllingBot = null;
-        _originalPawnFlags = null;
-        _spectatorCorrections = 0;
     }
 }

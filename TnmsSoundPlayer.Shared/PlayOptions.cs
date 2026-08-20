@@ -23,4 +23,11 @@ public sealed record PlayOptions
 
     /// <summary>What to do when another playback is already on air.</summary>
     public QueueBehavior WhenBusy { get; init; } = QueueBehavior.Enqueue;
+
+    /// <summary>
+    /// Renames the speaker to this for as long as this playback is audible, then puts
+    /// <see cref="ITnmsSoundPlayer.SpeakerName"/> back. Null (the default) leaves the name alone.
+    /// Useful for showing who requested the sound, e.g. "SoundPlayer: by faketuna".
+    /// </summary>
+    public string? SpeakerName { get; init; }
 }

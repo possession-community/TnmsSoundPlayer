@@ -24,20 +24,30 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     private const int MaxSendsPerTick = 5;   // catch-up bound after hitches
     private const int MaxVolumeBuckets = 8;
 
-    // SpeakerIdentity: which "speaker" clients see. Mutable for the Phase 0 in-game
-    // experiments (slot / xuid / fake client). An invalid slot plays audio with no UI.
+    // SpeakerIdentity: which "speaker" clients see. An invalid slot plays audio with no UI.
     internal int SpeakerSlot { get; set; } = -1;
     internal ulong SpeakerXuid { get; set; }
 
     // The speaker bot itself is owned by SpeakerManager, which the Shared API must not see.
-    // The module wires these on startup; before that, SpeakerSteamId simply reports 0.
+    // The module wires these on startup; before that, the speaker properties are inert.
     internal Func<ulong>? SpeakerSteamIdReader { get; set; }
     internal Action<ulong>? SpeakerSteamIdWriter { get; set; }
+    internal Func<string>? SpeakerNameReader { get; set; }
+    internal Action<string>? SpeakerNameWriter { get; set; }
+
+    /// <summary>Applies the name a playback borrowed the speaker with, or null to restore the default.</summary>
+    internal Action<string?>? SpeakerNameOverrideWriter { get; set; }
 
     public ulong SpeakerSteamId
     {
         get => SpeakerSteamIdReader?.Invoke() ?? 0;
         set => SpeakerSteamIdWriter?.Invoke(value);
+    }
+
+    public string SpeakerName
+    {
+        get => SpeakerNameReader?.Invoke() ?? string.Empty;
+        set => SpeakerNameWriter?.Invoke(value);
     }
 
     private readonly ILogger _logger;
@@ -270,12 +280,24 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
         {
             FlushPendingFinish();
             PumpCurrent();
+            SyncSpeakerName();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Sound player pump tick failed.");
         }
     }
+
+    /// <summary>
+    /// Hands the speaker the name of whatever is currently audible, or null when nothing is.
+    /// Driven from the pump rather than from the start/finish paths because a playback can leave the
+    /// air through half a dozen of them (completed, failed, stopped, interrupted, session shutdown);
+    /// reconciling one piece of state every tick cannot miss one. The writer no-ops when the resolved
+    /// name has not actually changed, so this stays a comparison in the common case.
+    /// </summary>
+    private void SyncSpeakerName()
+        => SpeakerNameOverrideWriter?.Invoke(
+            _current is { StartedFired: true } current ? current.Options.SpeakerName : null);
 
     private void FlushPendingFinish()
     {

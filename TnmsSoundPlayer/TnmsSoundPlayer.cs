@@ -21,7 +21,6 @@ public sealed class TnmsSoundPlayer : IModSharpModule
     private ToolManager? _tools;
     private SoundPlayerCore? _core;
     private SpeakerManager? _speaker;
-    private SpeakerDebugCommands? _speakerCommands;
     private Guid? _pumpTimer;
 
     public TnmsSoundPlayer(
@@ -65,6 +64,9 @@ public sealed class TnmsSoundPlayer : IModSharpModule
         _speaker.SpeakerXuidChanged += xuid => core.SpeakerXuid = xuid;
         _core.SpeakerSteamIdReader = () => speaker.SpoofSteamId;
         _core.SpeakerSteamIdWriter = speaker.SetSpoofSteamId;
+        _core.SpeakerNameReader = () => speaker.SpeakerName;
+        _core.SpeakerNameWriter = name => speaker.SpeakerName = name;
+        _core.SpeakerNameOverrideWriter = speaker.SetNameOverride;
         _sharedSystem.GetModSharp().InstallGameListener(_speaker);
 
         if (_hotReload)
@@ -72,9 +74,6 @@ public sealed class TnmsSoundPlayer : IModSharpModule
             // Reloaded mid-map: OnServerActivate already fired, request the bot ourselves.
             _sharedSystem.GetModSharp().PushTimer(() => speaker.EnsureBot(), 1.0, GameTimerFlags.StopOnMapEnd);
         }
-
-        _speakerCommands = new SpeakerDebugCommands(_logger, _sharedSystem, _core, _speaker);
-        _speakerCommands.Register();
 
         _sharedSystem.GetClientManager().InstallClientListener(_core);
         _pumpTimer = _sharedSystem.GetModSharp().PushTimer(_core.OnPump, 0.02, GameTimerFlags.Repeatable);
@@ -96,9 +95,6 @@ public sealed class TnmsSoundPlayer : IModSharpModule
             _sharedSystem.GetModSharp().StopTimer(timer);
             _pumpTimer = null;
         }
-
-        _speakerCommands?.Unregister();
-        _speakerCommands = null;
 
         if (_speaker is { } speaker)
         {
