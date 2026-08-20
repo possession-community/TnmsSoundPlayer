@@ -22,11 +22,16 @@ internal sealed class ToolManager
     private readonly string _toolsDir;
 
     private volatile string? _ffmpegPath;
+    private volatile string? _ffprobePath;
     private volatile string? _ytdlpPath;
     private volatile string? _denoPath;
     private volatile bool _downloading;
 
     public string? FfmpegPath => _ffmpegPath;
+
+    /// <summary>Ships in the same archive as ffmpeg; used to read a local file's duration.</summary>
+    public string? FfprobePath => _ffprobePath;
+
     public string? YtdlpPath => _ytdlpPath;
     public string? DenoPath => _denoPath;
     public bool Downloading => _downloading;
@@ -44,13 +49,14 @@ internal sealed class ToolManager
         Directory.CreateDirectory(_toolsDir);
 
         _ffmpegPath = Resolve(WindowsName("ffmpeg"));
+        _ffprobePath = Resolve(WindowsName("ffprobe"));
         _ytdlpPath = Resolve(WindowsName("yt-dlp"), linuxAlias: "yt-dlp_linux");
         _denoPath = Resolve(WindowsName("deno"));
 
-        if (_ffmpegPath is not null && _ytdlpPath is not null && _denoPath is not null)
+        if (_ffmpegPath is not null && _ffprobePath is not null && _ytdlpPath is not null && _denoPath is not null)
         {
-            _logger.LogInformation("Tools resolved: ffmpeg={Ffmpeg}, yt-dlp={Ytdlp}, deno={Deno}",
-                _ffmpegPath, _ytdlpPath, _denoPath);
+            _logger.LogInformation("Tools resolved: ffmpeg={Ffmpeg}, ffprobe={Ffprobe}, yt-dlp={Ytdlp}, deno={Deno}",
+                _ffmpegPath, _ffprobePath, _ytdlpPath, _denoPath);
             return;
         }
 
@@ -119,12 +125,14 @@ internal sealed class ToolManager
                 }
             }
 
-            if (_ffmpegPath is null)
+            // Both come out of the same archive, so a missing ffprobe is worth the download too.
+            if (_ffmpegPath is null || _ffprobePath is null)
             {
                 try
                 {
-                    _ffmpegPath = await DownloadFfmpegAsync(http);
-                    _logger.LogInformation("ffmpeg downloaded to {Path}", _ffmpegPath);
+                    (_ffmpegPath, _ffprobePath) = await DownloadFfmpegAsync(http);
+                    _logger.LogInformation("ffmpeg downloaded to {Path} (ffprobe: {Probe})",
+                        _ffmpegPath, _ffprobePath ?? "not in the archive");
                 }
                 catch (Exception ex)
                 {
@@ -163,7 +171,11 @@ internal sealed class ToolManager
         return target;
     }
 
-    private async Task<string> DownloadFfmpegAsync(HttpClient http)
+    /// <summary>
+    /// Downloads the ffmpeg archive and lifts both binaries out of it. ffprobe is optional in the
+    /// return value: a build that omits it still gives a working player, only without file durations.
+    /// </summary>
+    private async Task<(string Ffmpeg, string? Ffprobe)> DownloadFfmpegAsync(HttpClient http)
     {
         var target = Path.Combine(_toolsDir, WindowsName("ffmpeg"));
         var archive = Path.Combine(_toolsDir, OperatingSystem.IsWindows() ? "ffmpeg.zip" : "ffmpeg.tar.xz");
@@ -204,7 +216,16 @@ internal sealed class ToolManager
 
             File.Move(found, target, overwrite: true);
             MakeExecutable(target);
-            return target;
+
+            string? probeTarget = null;
+            if (Directory.EnumerateFiles(extractDir, WindowsName("ffprobe"), SearchOption.AllDirectories).FirstOrDefault() is { } probe)
+            {
+                probeTarget = Path.Combine(_toolsDir, WindowsName("ffprobe"));
+                File.Move(probe, probeTarget, overwrite: true);
+                MakeExecutable(probeTarget);
+            }
+
+            return (target, probeTarget);
         }
         finally
         {

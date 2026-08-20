@@ -132,6 +132,55 @@ internal static class FfmpegProcess
         => Process.Start(psi) ?? throw new SoundPlayerException(
             PlaybackErrorReason.DecodeFailed, $"Failed to start process '{psi.FileName}'.");
 
+    /// <summary>
+    /// Reads a local file's duration with ffprobe. Returns null when ffprobe is unavailable or the
+    /// container carries no duration, which is what ISoundPlayback.Duration reports as "unknown".
+    /// </summary>
+    public static async Task<TimeSpan?> ProbeDurationAsync(string? ffprobePath, string filePath, CancellationToken ct)
+    {
+        if (ffprobePath is null)
+        {
+            return null;
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffprobePath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("-v");
+        psi.ArgumentList.Add("error");
+        psi.ArgumentList.Add("-show_entries");
+        psi.ArgumentList.Add("format=duration");
+        psi.ArgumentList.Add("-of");
+        psi.ArgumentList.Add("default=noprint_wrappers=1:nokey=1");
+        psi.ArgumentList.Add(filePath);
+
+        try
+        {
+            using var probe = Start(psi);
+            var output = await probe.StandardOutput.ReadToEndAsync(ct);
+            await probe.WaitForExitAsync(ct);
+
+            if (probe.ExitCode != 0
+                || !double.TryParse(output.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+                || !double.IsFinite(seconds)
+                || seconds <= 0)
+            {
+                return null;
+            }
+
+            return TimeSpan.FromSeconds(seconds);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     private static async Task FeedAsync(Process ffmpeg, ReadOnlyMemory<byte> data)
     {
         try
@@ -177,7 +226,7 @@ internal sealed class AudioFileService : IAudioFileService
         var stream = new FfmpegPcmStream(
             startAt => FfmpegProcess.StartForFile(ffmpeg, path, startAt),
             canSeek: true,
-            duration: null);
+            duration: await FfmpegProcess.ProbeDurationAsync(_tools.FfprobePath, path, ct));
         await stream.PrimeAsync(ct);
         return stream;
     }
