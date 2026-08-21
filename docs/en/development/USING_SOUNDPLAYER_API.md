@@ -64,8 +64,11 @@ queue limits and of `StopAll`, so use a name that identifies your plugin.
 
 ### 4. Set the Speaker Identity
 
-Audio is attributed to a bot the module keeps in spectator. Give that bot a SteamID64 you control,
-or the scoreboard marks it as a bot and it shows no avatar:
+Every voice packet names a speaker, and `tnms_sound_speaker_mode` decides how.
+
+By default (`0`) audio is attributed to a bot the module keeps in spectator, which costs one of the
+server's 64 player slots. Give that bot a SteamID64 you control, or the scoreboard marks it as a
+bot and it shows no avatar:
 
 ```csharp
 _player.SpeakerSteamId = 7656119XXXXXXXXXX;
@@ -80,6 +83,12 @@ is re-applied to every bot created afterwards.
 _player.SpeakerName = "Jukebox";
 ```
 
+Set `tnms_sound_speaker_mode 1` to attribute audio to an entity index instead: no bot, **no slot
+spent**, and neither property above is needed. The trade is that there is no scoreboard row, so the
+speaker has no visible name and players cannot mute it from their own client — give them a command
+that calls `SetHearing` or `SetPlayerVolume` ([Mute a Player](#mute-a-player)) instead. See
+[Speaker Identity](api/playback.md#speaker-identity) for the full comparison.
+
 ### 5. ITnmsSoundPlayer Overview
 
 | Member | Type | Purpose |
@@ -88,8 +97,8 @@ _player.SpeakerName = "Jukebox";
 | `CurrentPlayback` | `ISoundPlaybackInfo?` | The playback on air, or `null` when idle. Read-only: it may not be yours |
 | `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | Pending playbacks in playback order, read-only |
 | `StopAll()` | `void` | Stop everything across all sessions (administrative) |
-| `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` disables the spoof |
-| `SpeakerName` | `string` | Name the speaker shows while nothing is playing |
+| `SpeakerSteamId` | `ulong` | Bot mode: SteamID64 the speaker bot masquerades as, `0` disables the spoof. Entity mode: the voice stream key |
+| `SpeakerName` | `string` | Name the speaker shows while nothing is playing. Bot mode only |
 | `FileService` | `IAudioFileService` | Open local files and buffers as PCM |
 | `NetworkService` | `INetworkAudioService` | Open URLs as PCM, and fetch metadata |
 | `Diagnostics` | `SoundPlayerDiagnostics` | Tool availability and queue statistics |

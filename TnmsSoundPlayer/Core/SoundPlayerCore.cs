@@ -23,12 +23,39 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     private const int PrebufferChunks = 4;   // ~240 ms before the first packet goes out
     private const int MaxSendsPerTick = 5;   // catch-up bound after hitches
 
+    /// <summary>
+    /// Entity index voice is attributed to in <see cref="SpeakerMode.Entity" />. Nothing has to
+    /// exist at it — that is the point — but nothing else should either, and the index cannot be
+    /// reserved: the engine assigns indices itself, so this only has to sit where it is not going to
+    /// be handed out. Near the top of the valid range (0..16383) and far above both the player
+    /// indices (1..maxplayers, capped at 64) and anything a map allocates from the bottom up.
+    /// </summary>
+    internal const int DefaultSpeakerEntity = 15000;
+
+    /// <summary>
+    /// Stand-in xuid for <see cref="SpeakerMode.Entity" />, where nothing supplies a real one. The
+    /// client keys one decoder and ring buffer per xuid, so this only has to be stable and non-zero.
+    /// </summary>
+    internal const ulong DefaultSpeakerXuid = 0x1100001_00000001;
+
+    /// <summary>How the speaker is addressed on the wire. Fixed at startup by the module.</summary>
+    internal SpeakerMode Mode { get; set; } = SpeakerMode.Bot;
+
+    private bool UseEntityVoice => Mode == SpeakerMode.Entity;
+
     // SpeakerIdentity: which "speaker" clients see. An invalid slot plays audio with no UI.
     internal int SpeakerSlot { get; set; } = -1;
     internal ulong SpeakerXuid { get; set; }
 
-    // The speaker bot itself is owned by SpeakerManager, which the Shared API must not see.
-    // The module wires these on startup; before that, the speaker properties are inert.
+    /// <summary>Entity index used in <see cref="SpeakerMode.Entity" />; ignored in Bot mode.</summary>
+    internal int SpeakerEntity { get; set; } = DefaultSpeakerEntity;
+
+    // In Bot mode the speaker bot owns this state and SpeakerManager wires the accessors below;
+    // the Shared API must not see that type. In Entity mode there is no bot, so the accessors stay
+    // null and these fields are the storage.
+    private ulong _speakerSteamId = DefaultSpeakerXuid;
+    private string _speakerName = string.Empty;
+
     internal Func<ulong>? SpeakerSteamIdReader { get; set; }
     internal Action<ulong>? SpeakerSteamIdWriter { get; set; }
     internal Func<string>? SpeakerNameReader { get; set; }
@@ -39,14 +66,24 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
 
     public ulong SpeakerSteamId
     {
-        get => SpeakerSteamIdReader?.Invoke() ?? 0;
-        set => SpeakerSteamIdWriter?.Invoke(value);
+        get => SpeakerSteamIdReader?.Invoke() ?? _speakerSteamId;
+        set
+        {
+            // Entity mode sends this as the stream key on every packet, and 0 would key every
+            // speaker to the same stream, so an explicit clear falls back to the stand-in.
+            _speakerSteamId = value == 0 ? DefaultSpeakerXuid : value;
+            SpeakerSteamIdWriter?.Invoke(value);
+        }
     }
 
     public string SpeakerName
     {
-        get => SpeakerNameReader?.Invoke() ?? string.Empty;
-        set => SpeakerNameWriter?.Invoke(value);
+        get => SpeakerNameReader?.Invoke() ?? _speakerName;
+        set
+        {
+            _speakerName = value;
+            SpeakerNameWriter?.Invoke(value);
+        }
     }
 
     private readonly ILogger _logger;
@@ -459,12 +496,21 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
             audio.PacketOffsets.Add(offset);
         }
 
-        return new CSVCMsg_VoiceData
+        var message = new CSVCMsg_VoiceData { Audio = audio };
+
+        if (UseEntityVoice)
         {
-            ClientDeprecated = SpeakerSlot,
-            Xuid = SpeakerXuid,
-            Audio = audio,
-        };
+            // No player stands behind this index, which is the whole point: nothing occupies a slot.
+            message.Entity = SpeakerEntity;
+            message.Xuid = SpeakerSteamId;
+        }
+        else
+        {
+            message.ClientDeprecated = SpeakerSlot;
+            message.Xuid = SpeakerXuid;
+        }
+
+        return message;
     }
 
     private bool Matches(SoundPlayback playback, IGameClient client)

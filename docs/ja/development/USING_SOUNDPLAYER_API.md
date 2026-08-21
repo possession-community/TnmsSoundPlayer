@@ -64,8 +64,11 @@ var session = _player.CreateSession("MyPlugin");
 
 ### 4. スピーカーの識別情報を設定する
 
-音声は、モジュールが観戦席に置いているボットの声として送出される。
-このボットには自分が管理する SteamID64 を与える。
+ボイスパケットには必ず話者を載せる。その載せ方は `tnms_sound_speaker_mode` で決まる。
+
+既定（`0`）では、音声はモジュールが観戦席に置いているボットの声として送出される。
+この方式ではサーバーの 64 スロットのうち 1 つを消費する。
+ボットには自分が管理する SteamID64 を与える。
 与えないとスコアボードでボット扱いになり、アバターも表示されない。
 
 ```csharp
@@ -81,6 +84,12 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 _player.SpeakerName = "Jukebox";
 ```
 
+`tnms_sound_speaker_mode 1` にすると、音声はエンティティインデックスに紐付けられる。
+ボットは作られず、**スロットも消費しない**。上の 2 つのプロパティも不要になる。
+引き換えにスコアボードの行がなくなるため、スピーカーに表示名はなく、プレイヤーが自分のクライアントからミュートすることもできない。
+代わりに `SetHearing` や `SetPlayerVolume` を呼ぶコマンドを用意する（[プレイヤーをミュートする](#プレイヤーをミュートする)）。
+両モードの比較は[スピーカーの識別情報](api/playback.md#スピーカーの識別情報)を参照。
+
 ### 5. ITnmsSoundPlayer の全体像
 
 | メンバー | 型 | 用途 |
@@ -89,8 +98,8 @@ _player.SpeakerName = "Jukebox";
 | `CurrentPlayback` | `ISoundPlaybackInfo?` | 再生中のもの。アイドル時は `null`。自分のものとは限らないので読み取り専用 |
 | `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | 待機中の再生を再生順に並べたもの。読み取り専用 |
 | `StopAll()` | `void` | 全セッションの再生を止める（管理用） |
-| `SpeakerSteamId` | `ulong` | スピーカーボットが偽装する SteamID64。`0` で偽装しない |
-| `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前 |
+| `SpeakerSteamId` | `ulong` | ボットモードではスピーカーボットが偽装する SteamID64（`0` で偽装しない）。エンティティモードでは音声ストリームのキー |
+| `SpeakerName` | `string` | 何も再生していないときにスピーカーが表示する名前。ボットモードのみ有効 |
 | `FileService` | `IAudioFileService` | ローカルファイルやバッファを PCM として開く |
 | `NetworkService` | `INetworkAudioService` | URL を PCM として開く。メタデータ取得も行う |
 | `Diagnostics` | `SoundPlayerDiagnostics` | ツールの可用性とキューの統計 |

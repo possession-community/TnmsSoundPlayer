@@ -38,20 +38,30 @@ Entry point, resolved from `ISharpModuleManager` with `ITnmsSoundPlayer.Identity
 | `CurrentPlayback` | `ISoundPlaybackInfo?` | The playback on air, or `null` when idle. Read-only view |
 | `Queue` | `IReadOnlyList<ISoundPlaybackInfo>` | Snapshot of pending playbacks in playback order, excluding `CurrentPlayback`. Read-only views |
 | `StopAll()` | `void` | Stops the current playback and clears the queue across all sessions |
-| `SpeakerSteamId` | `ulong` | SteamID64 the speaker bot masquerades as. `0` (the default) disables the spoof. See [Speaker Identity](#speaker-identity) |
-| `SpeakerName` | `string` | Name the speaker shows while nothing is playing. Blank resets it to `TnmsSpeaker`. See [Speaker Identity](#speaker-identity) |
+| `SpeakerSteamId` | `ulong` | Bot mode: SteamID64 the speaker bot masquerades as, `0` disables the spoof. Entity mode: the voice stream key. See [Speaker Identity](#speaker-identity) |
+| `SpeakerName` | `string` | Name the speaker shows while nothing is playing. Blank resets it to `TnmsSpeaker`. Bot mode only. See [Speaker Identity](#speaker-identity) |
 | `FileService` | `IAudioFileService` | See [Audio Sources](sources.md) |
 | `NetworkService` | `INetworkAudioService` | See [Audio Sources](sources.md) |
 | `Diagnostics` | `SoundPlayerDiagnostics` | Runtime health snapshot. Safe to read from any thread |
 
 ### Speaker Identity
 
-Audio needs a client slot to be attributed to, so the module keeps one bot in spectator and sends
-the voice data as if it came from there. Part of making that bot read as a real player rather than
-a bot is giving its controller a real SteamID64, which is what `SpeakerSteamId` sets.
+Every voice packet has to say who is speaking. There are two ways to answer that, chosen by the
+`tnms_sound_speaker_mode` ConVar. It and `tnms_sound_speaker_entity` are read at load and again at
+every map start, so changing one mid-map takes effect on the next map — switching modes creates or
+kicks a bot, and a map boundary is where that is least disruptive.
 
-No id is baked into the source, because it names a real account. Until you set one, the speaker
-works but the scoreboard marks it as a bot and shows no avatar.
+| | `0` — bot (default) | `1` — entity |
+|---|---|---|
+| Player slots used | 1 of the server's 64 | **none** |
+| Scoreboard row | yes | no |
+| `SpeakerName` | shown on that row | inert, see below |
+| Client-side mute | works | not available — mute server-side instead |
+
+**Bot mode** attributes audio to a player slot, so a bot has to sit in one for the slot to resolve
+to somebody. Making that bot read as a real player rather than a bot needs a real SteamID64 on its
+controller, which is what `SpeakerSteamId` sets. No id is baked into the source, because it names a
+real account; until you set one the speaker works, but the scoreboard marks it as a bot.
 
 ```csharp
 // Use an account you control.
@@ -61,8 +71,8 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 The value applies immediately and is re-applied to every bot created afterwards, so setting it once
 at startup is enough. Set it back to `0` to drop the spoof.
 
-`SpeakerName` is the other half of that identity: the name on the scoreboard row. It is the resting
-name, shown whenever nothing is playing.
+`SpeakerName` is the other half of that identity: the name on the scoreboard row, shown whenever
+nothing is playing.
 
 ```csharp
 _player.SpeakerName = "Jukebox";
@@ -71,6 +81,21 @@ _player.SpeakerName = "Jukebox";
 An individual playback can borrow the name for as long as it is audible through
 [`PlayOptions.SpeakerName`](#playoptions) — useful for crediting whoever requested the sound. The
 resting name comes back the moment that playback ends, however it ends.
+
+**Entity mode** attributes audio to an entity index instead. Nothing has to exist behind that index,
+so no bot is created and no slot is spent — which is the reason to use it: a 64-slot server keeps
+all 64 for players. `tnms_sound_speaker_entity` picks the index. The engine assigns entity indices
+itself, so one cannot be reserved; the default instead sits near the top of the valid range
+(`0..16383`), clear of both players (`1..maxplayers`) and the indices a map allocates from the
+bottom up. Move it only to dodge a collision: a real entity at this index would pull the audio to
+wherever that entity is, and a player's index would make that player appear to be talking.
+
+The trade is that there is no scoreboard row. `SpeakerName` and `PlayOptions.SpeakerName` still
+round-trip, but nothing renders them — show the current track in your own HUD or chat if you need
+it. `SpeakerSteamId` keeps a narrower job here: the client keys one audio stream per xuid, so it
+only has to be stable and non-zero, and the module supplies a default. Players also cannot mute the
+speaker from their own client, so give them a command that calls `SetHearing` or `SetPlayerVolume`
+instead; both drop the recipient server-side and never send the packets at all.
 
 ---
 

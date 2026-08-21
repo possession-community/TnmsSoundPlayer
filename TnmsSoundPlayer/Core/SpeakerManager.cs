@@ -61,6 +61,38 @@ internal sealed class SpeakerManager : IGameListener
     private int _spectatorCorrections;
     private int _botRequestAttempts;
 
+    private bool _botEnabled = true;
+
+    /// <summary>
+    /// Whether a speaker bot should exist at all. False in <see cref="SpeakerMode.Entity" />, where
+    /// voice is attributed to an entity index and no player slot is spent. Clearing it kicks the bot
+    /// we are holding; the manager itself stays wired either way, so the speaker name and SteamID
+    /// still round-trip through it.
+    /// </summary>
+    public bool BotEnabled
+    {
+        get => _botEnabled;
+        set
+        {
+            if (_botEnabled == value)
+            {
+                return;
+            }
+
+            _botEnabled = value;
+
+            if (value)
+            {
+                EnsureBot();
+            }
+            else
+            {
+                RemoveBot();
+                _logger.LogInformation("Speaker bot released: voice is attributed to an entity index now.");
+            }
+        }
+    }
+
     /// <summary>
     /// SteamID64 the speaker bot masquerades as (0 = no spoofing, the default). Set through
     /// ITnmsSoundPlayer.SpeakerSteamId; deliberately not hardcoded, since it names a real account.
@@ -139,6 +171,11 @@ internal sealed class SpeakerManager : IGameListener
     {
         _botRequestAttempts = 0;
 
+        if (!_botEnabled)
+        {
+            return;
+        }
+
         // On an empty server the game never really starts and bot_add produces nothing, which is what
         // filled the log with "vanished before configuration" during idle map cycling. Ask now only if
         // somebody is already here (a map change with players on); otherwise the first human joining
@@ -204,6 +241,13 @@ internal sealed class SpeakerManager : IGameListener
         if (name is not null)
         {
             SpeakerName = name;
+        }
+
+        // The single funnel every bot request goes through — OnServerActivate, OnClientConnected and
+        // the watchdog all land here — so one guard covers them all.
+        if (!_botEnabled)
+        {
+            return;
         }
 
         // Re-arm the watchdog: a manual respawn after a kick should start requesting again.
