@@ -75,7 +75,7 @@ public sealed class TnmsSoundPlayer : IModSharpModule, IGameListener
 
         _speakerModeConVar = conVars.CreateConVar(
             "tnms_sound_speaker_mode",
-            (int)SpeakerMode.Bot,
+            (int)SpeakerMode.Entity,
             (int)SpeakerMode.Bot,
             (int)SpeakerMode.Entity,
             "How sounds are attributed to a speaker. 0 = bot: a bot holds a player slot and shows on "

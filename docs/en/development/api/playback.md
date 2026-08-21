@@ -51,7 +51,7 @@ Every voice packet has to say who is speaking. There are two ways to answer that
 every map start, so changing one mid-map takes effect on the next map — switching modes creates or
 kicks a bot, and a map boundary is where that is least disruptive.
 
-| | `0` — bot (default) | `1` — entity |
+| | `0` — bot | `1` — entity (default) |
 |---|---|---|
 | Player slots used | 1 of the server's 64 | **none** |
 | Scoreboard row | yes | no |

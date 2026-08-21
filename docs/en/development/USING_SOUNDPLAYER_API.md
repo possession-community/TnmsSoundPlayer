@@ -66,9 +66,9 @@ queue limits and of `StopAll`, so use a name that identifies your plugin.
 
 Every voice packet names a speaker, and `tnms_sound_speaker_mode` decides how.
 
-By default (`0`) audio is attributed to a bot the module keeps in spectator, which costs one of the
-server's 64 player slots. Give that bot a SteamID64 you control, or the scoreboard marks it as a
-bot and it shows no avatar:
+Set `tnms_sound_speaker_mode 0` and audio is attributed to a bot the module keeps in spectator,
+which costs one of the server's 64 player slots. Give that bot a SteamID64 you control, or the
+scoreboard marks it as a bot and it shows no avatar:
 
 ```csharp
 _player.SpeakerSteamId = 7656119XXXXXXXXXX;
@@ -83,9 +83,9 @@ is re-applied to every bot created afterwards.
 _player.SpeakerName = "Jukebox";
 ```
 
-Set `tnms_sound_speaker_mode 1` to attribute audio to an entity index instead: no bot, **no slot
-spent**, and neither property above is needed. The trade is that there is no scoreboard row, so the
-speaker has no visible name and players cannot mute it from their own client — give them a command
+By default (`1`) audio is attributed to an entity index instead: no bot, **no slot spent**, and
+neither property above is needed. The trade is that there is no scoreboard row, so the speaker has
+no visible name and players cannot mute it from their own client — give them a command
 that calls `SetHearing` or `SetPlayerVolume` ([Mute a Player](#mute-a-player)) instead. See
 [Speaker Identity](api/playback.md#speaker-identity) for the full comparison.
 
