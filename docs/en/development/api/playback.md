@@ -57,11 +57,13 @@ kicks a bot, and a map boundary is where that is least disruptive.
 | Scoreboard row | yes | no |
 | `SpeakerName` | shown on that row | inert, see below |
 | Client-side mute | works | not available — mute server-side instead |
+| Per-player volume on the scoreboard | needs `SpeakerSteamId` set | not available |
 
 **Bot mode** attributes audio to a player slot, so a bot has to sit in one for the slot to resolve
-to somebody. Making that bot read as a real player rather than a bot needs a real SteamID64 on its
-controller, which is what `SpeakerSteamId` sets. No id is baked into the source, because it names a
-real account; until you set one the speaker works, but the scoreboard marks it as a bot.
+to somebody — which means bot mode permanently occupies one of the server's 64 player slots.
+Making that bot read as a real player rather than a bot needs a real SteamID64 on its controller,
+which is what `SpeakerSteamId` sets. No id is baked into the source, because it names a real
+account; until you set one the speaker works, but the scoreboard marks it as a bot.
 
 ```csharp
 // Use an account you control.
@@ -70,6 +72,10 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 
 The value applies immediately and is re-applied to every bot created afterwards, so setting it once
 at startup is enough. Set it back to `0` to drop the spoof.
+
+Set it if you want players to adjust the speaker's volume themselves: the per-player volume control
+on the scoreboard belongs to a real player's row, and a row still marked as a bot does not carry
+one. Without an id, the only volume control is the server-side `SetPlayerVolume`.
 
 `SpeakerName` is the other half of that identity: the name on the scoreboard row, shown whenever
 nothing is playing.

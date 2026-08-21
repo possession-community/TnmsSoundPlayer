@@ -77,6 +77,9 @@ _player.SpeakerSteamId = 7656119XXXXXXXXXX;
 No id ships in the source, since it names a real account. Setting it once at startup is enough — it
 is re-applied to every bot created afterwards.
 
+Set it if you want players to adjust the speaker's volume from the scoreboard themselves: that
+control belongs to a real player's row, and a row still marked as a bot does not carry one.
+
 `SpeakerName` is the name on that scoreboard row while nothing is playing:
 
 ```csharp
