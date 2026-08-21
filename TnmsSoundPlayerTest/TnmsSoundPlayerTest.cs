@@ -123,7 +123,7 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     private static string Describe(ISoundPlaybackInfo playback)
     {
         var error = playback.Error is { } e ? $" error={e.Reason}({e.Message})" : string.Empty;
-        return $"#{playback.Id} [{playback.State}] owner={playback.OwnerName} pos={playback.Position:mm\\:ss\\.fff} dur={playback.Duration?.ToString(@"mm\:ss\.fff") ?? "?"} vol={playback.Volume.ToString("0.##", CultureInfo.InvariantCulture)}{error}";
+        return $"#{playback.Id} [{playback.State}] owner={playback.OwnerName} pos={playback.Position:mm\\:ss\\.fff} dur={playback.Duration?.ToString(@"mm\:ss\.fff") ?? "?"} vol={FormatVolume(playback.Volume)}{error}";
     }
 
     /// <summary>Streams the URL: audio starts quickly, but the playback cannot seek.</summary>
@@ -142,13 +142,11 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     {
         if (command.ArgCount < 1)
         {
-            Reply(client, $"usage: {commandName} <url> [volume]");
+            Reply(client, $"usage: {commandName} <url> [volume%]");
             return ECommandAction.Stopped;
         }
 
-        var volume = 1.0f;
-        if (command.ArgCount >= 2
-            && !float.TryParse(command.GetArg(2), NumberStyles.Float, CultureInfo.InvariantCulture, out volume))
+        if (!TryParseVolumeArg(command, 2, out var volume))
         {
             Reply(client, "invalid volume");
             return ECommandAction.Stopped;
@@ -186,13 +184,11 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
     {
         if (command.ArgCount < 1)
         {
-            Reply(client, "usage: sp_file <path> [volume]");
+            Reply(client, "usage: sp_file <path> [volume%]");
             return ECommandAction.Stopped;
         }
 
-        var volume = 1.0f;
-        if (command.ArgCount >= 2
-            && !float.TryParse(command.GetArg(2), NumberStyles.Float, CultureInfo.InvariantCulture, out volume))
+        if (!TryParseVolumeArg(command, 2, out var volume))
         {
             Reply(client, "invalid volume");
             return ECommandAction.Stopped;
@@ -385,24 +381,53 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         return ECommandAction.Stopped;
     }
 
-    /// <summary>Sets the caller's volume multiplier for this session only.</summary>
+    /// <summary>
+    /// Sets the caller's volume multiplier for this session only. Takes a percentage, because that
+    /// is what a player expects to type: 100 is unmodified, 400 the API's ceiling. The multiplier
+    /// itself rounds to 0.01, so a percentage maps onto it exactly.
+    /// </summary>
     private ECommandAction OnVolume(IGameClient client, StringCommand command)
     {
         var session = Session;
 
         if (command.ArgCount < 1
-            || !float.TryParse(command.GetArg(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var volume))
+            || !float.TryParse(command.GetArg(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
         {
-            Reply(client, $"volume for '{SessionOwner}': "
-                + $"{session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
-                + "(usage: sp_vol <0.0-4.0>)");
+            Reply(client, $"volume for '{SessionOwner}': {FormatVolume(session.GetPlayerVolume(client))} "
+                + "(usage: sp_vol <0-400>)");
             return ECommandAction.Stopped;
         }
 
-        session.SetPlayerVolume(volume, [client]);
-        Reply(client, $"volume for '{SessionOwner}': "
-            + session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture));
+        session.SetPlayerVolume(percent / 100f, [client]);
+        Reply(client, $"volume for '{SessionOwner}': {FormatVolume(session.GetPlayerVolume(client))}");
         return ECommandAction.Stopped;
+    }
+
+    /// <summary>Renders a stored multiplier back as the percentage the commands take.</summary>
+    private static string FormatVolume(float volume)
+        => (volume * 100f).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>
+    /// Parses an optional volume argument. Every sp_* command takes a percentage so the unit never
+    /// changes between them; an absent argument means 100%.
+    /// </summary>
+    private static bool TryParseVolumeArg(StringCommand command, int argIndex, out float volume)
+    {
+        volume = 1.0f;
+
+        if (command.ArgCount < argIndex)
+        {
+            return true;
+        }
+
+        if (!float.TryParse(
+                command.GetArg(argIndex), NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
+        {
+            return false;
+        }
+
+        volume = percent / 100f;
+        return true;
     }
 
     private ECommandAction OnStatus(IGameClient client, StringCommand command)
@@ -412,13 +437,13 @@ public sealed class TnmsSoundPlayerTest : IModSharpModule
         Reply(client, $"ffmpeg={(d.FfmpegAvailable ? d.FfmpegPath : "MISSING")} yt-dlp={(d.YtdlpAvailable ? d.YtdlpPath : "MISSING")} queue={d.QueueLength} sessions={d.ActiveSessionCount}");
         Reply(client, $"speaker: name='{_player.SpeakerName}' steamId={_player.SpeakerSteamId}");
         Reply(client, $"active session '{SessionOwner}': hearing={session.GetHearing(client)} "
-            + $"volume={session.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
+            + $"volume={FormatVolume(session.GetPlayerVolume(client))} "
             + $"own={session.OwnPlaybacks.Count}");
 
         // The other session too, so cross-session effects (or the absence of them) are visible.
         var other = _player.CreateSession(_useSessionB ? SessionOwnerA : SessionOwnerB);
         Reply(client, $"other  session '{other.OwnerName}': hearing={other.GetHearing(client)} "
-            + $"volume={other.GetPlayerVolume(client).ToString("0.##", CultureInfo.InvariantCulture)} "
+            + $"volume={FormatVolume(other.GetPlayerVolume(client))} "
             + $"own={other.OwnPlaybacks.Count}");
 
         Reply(client, _player.CurrentPlayback is { } current ? $"current: {Describe(current)}" : "current: (idle)");
