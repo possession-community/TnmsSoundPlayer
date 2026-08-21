@@ -60,7 +60,15 @@ public sealed class TnmsSoundPlayer : IModSharpModule, IGameListener
         // Runs before SpeakerManager's own listener (game listeners are sorted by descending
         // priority, and it uses 0), so a map starts with the speaker configuration already applied.
         _sharedSystem.GetModSharp().InstallGameListener(this);
-        ApplySpeakerConfig(logUnchanged: true);
+
+        // Deferred by a frame, because a ConVar cannot be read in the same breath as it is created:
+        // the engine has not taken it yet and GetInt32 answers 0 — which is SpeakerMode.Bot, and
+        // therefore indistinguishable from an operator asking for bot mode. Reading it inline made
+        // every load resolve to bot, spend a player slot on a bot nobody asked for, and hold it
+        // until some later map change happened to re-read the value correctly. On a live server on
+        // 2026-08-21 only the loads that coincided with a map change came out as entity; the rest
+        // sat in bot mode for hours. SpeakerManager starts with no bot, so nothing spawns meanwhile.
+        _sharedSystem.GetModSharp().InvokeFrameAction(() => ApplySpeakerConfig(logUnchanged: true));
 
         _sharedSystem.GetClientManager().InstallClientListener(_core);
         _pumpTimer = _sharedSystem.GetModSharp().PushTimer(_core.OnPump, 0.02, GameTimerFlags.Repeatable);
@@ -113,9 +121,13 @@ public sealed class TnmsSoundPlayer : IModSharpModule, IGameListener
             return;
         }
 
-        var mode = _speakerModeConVar?.GetInt32() == (int)SpeakerMode.Entity
-            ? SpeakerMode.Entity
-            : SpeakerMode.Bot;
+        // Bot is opt-in, and anything that is not a clear request for it — including a ConVar that
+        // could not be created — falls back to the ConVar's own default rather than to the mode
+        // that costs a player slot. Being wrong towards entity is invisible; being wrong towards
+        // bot puts a bot on the scoreboard.
+        var mode = _speakerModeConVar?.GetInt32() == (int)SpeakerMode.Bot
+            ? SpeakerMode.Bot
+            : SpeakerMode.Entity;
         var entity = _speakerEntityConVar?.GetInt32() ?? SoundPlayerCore.DefaultSpeakerEntity;
         var changed = core.Mode != mode || core.SpeakerEntity != entity;
 

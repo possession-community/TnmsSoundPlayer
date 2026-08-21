@@ -61,7 +61,13 @@ internal sealed class SpeakerManager : IGameListener
     private int _spectatorCorrections;
     private int _botRequestAttempts;
 
-    private bool _botEnabled = true;
+    /// <summary>
+    /// Starts false so that the window between the module loading and the speaker ConVars being
+    /// readable cannot produce a bot. Whichever mode the configuration turns out to name is applied
+    /// a frame later; starting from "no bot" means guessing wrong for that frame costs nothing,
+    /// whereas starting from "bot" would already have spent a player slot by the time we found out.
+    /// </summary>
+    private bool _botEnabled;
 
     /// <summary>
     /// Whether a speaker bot should exist at all. False in <see cref="SpeakerMode.Entity" />, where
@@ -81,14 +87,22 @@ internal sealed class SpeakerManager : IGameListener
 
             _botEnabled = value;
 
-            if (value)
-            {
-                EnsureBot();
-            }
-            else
+            if (!value)
             {
                 RemoveBot();
                 _logger.LogInformation("Speaker bot released: voice is attributed to an entity index now.");
+
+                return;
+            }
+
+            // Same rule as OnServerActivate: bot_add produces nothing while the server sits empty,
+            // and asking anyway is what fills the log with "vanished before configuration". Arm the
+            // watchdog instead and let the first human to join bring the bot in.
+            StartWatchdog();
+
+            if (HasHumanClient())
+            {
+                EnsureBot();
             }
         }
     }
