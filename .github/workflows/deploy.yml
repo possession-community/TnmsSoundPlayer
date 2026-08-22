@@ -23,8 +23,7 @@ jobs:
 
   # Declared here rather than inside the reusable workflow because nuget.org validates the OIDC
   # token's job_workflow_ref against the repository that owns the package, and that claim names the
-  # workflow file the job lives in. A sibling of release, not a dependency of it: a NuGet failure
-  # should not withhold the GitHub release.
+  # workflow file the job lives in.
   publish-nuget:
     needs: cicd
     if: startsWith(github.ref, 'refs/tags/')
@@ -39,8 +38,10 @@ jobs:
           project-dirs: TnmsSoundPlayer.Shared
           user: ${{ secrets.NUGET_USER }}
 
+  # Gated on the NuGet push: the package is what this repository ships, so a release whose package
+  # never made it to nuget.org would announce a version nobody can reference.
   release:
-    needs: cicd
+    needs: [cicd, publish-nuget]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
