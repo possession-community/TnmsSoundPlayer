@@ -7,7 +7,12 @@ on:
 
 jobs:
   cicd:
-    uses: possession-community/modsharp-publish-action/.github/workflows/deploy.yml@v1
+    uses: possession-community/modsharp-publish-action/.github/workflows/deploy.yml@v2
+    # The NuGet push authenticates through OIDC rather than a stored key, and a reusable workflow
+    # cannot grant itself the token — it only ever gets what this job hands down.
+    permissions:
+      contents: read
+      id-token: write
     with:
       # TnmsSoundPlayerTest is a manual harness, so it is deliberately not shipped.
       projects: TnmsSoundPlayer
@@ -21,7 +26,7 @@ jobs:
       nuget-project-dirs: TnmsSoundPlayer.Shared
       nuget-config-props: config.props
     secrets:
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      NUGET_USER: ${{ secrets.NUGET_USER }}
 
   release:
     needs: cicd
