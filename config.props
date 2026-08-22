@@ -1,6 +1,6 @@
 <Project>
     <PropertyGroup>
-        <Version>0.0.1</Version>
+        <Version>0.0.2</Version>
         <Authors>faketuna</Authors>
         <Copyright>© 2026 faketuna</Copyright>
         <RepositoryUrl>https://github.com/possession-community/TnmsSoundPlayer</RepositoryUrl>
