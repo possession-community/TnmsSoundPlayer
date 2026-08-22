@@ -4,9 +4,6 @@ A [ModSharp](https://github.com/Kxnrl/modsharp-public) module for Counter-Strike
 arbitrary audio into the voice channel — local files, in-memory buffers, any URL yt-dlp can resolve,
 or a PCM stream produced by your own plugin.
 
-Audio is attributed to a resident bot that sits in spectator and is disguised to pass for a real
-player, so clients can mute it and adjust its volume with the normal in-game controls.
-
 ## Translated README
 
 [日本語](README_JA.md)
@@ -19,8 +16,6 @@ player, so clients can mute it and adjust its volume with the normal in-game con
 - Per-recipient targeting: everyone, one client, a fixed set, or a live predicate
 - Per-client hearing toggle and server-side volume multiplier, scoped per plugin
 - Custom sources via `IPcmAudioStream` for TTS or procedurally generated audio
-- ffmpeg, ffprobe, yt-dlp and deno are downloaded automatically at first start
-- No dependency on TnmsPluginFoundation
 
 ## Requirements
 
@@ -41,9 +36,6 @@ the `modules\` and `shared\` trees ready to merge into `%MOD_SHARP_DIR%`. To pla
    Shared assemblies belong in `shared\` only — never under `modules\`.
 3. Start the server. On first start the module downloads ffmpeg, ffprobe, yt-dlp and deno into
    `modules\TnmsSoundPlayer\tools\`.
-4. Set `ITnmsSoundPlayer.SpeakerSteamId` to a SteamID64 you control from a plugin. No id ships in
-   the source, and until one is set the speaker still works but the scoreboard marks it as a bot
-   and shows no avatar.
 
 > A module directory's `reload\` subfolder only works for a module that is **already loaded**.
 > The first deploy has to go into the module root, or the module never loads.
@@ -66,17 +58,6 @@ written to the user profile.
 Audio is encoded to Opus and injected as `CSVCMsg_VoiceData`, which means it travels the same path
 as player voice and obeys the client's own voice controls.
 
-Attribution needs a client slot to point at, so the module keeps one bot on the server:
-
-- The bot is requested through the game's own manager (`bot_add`) once the first human joins —
-  bots cannot be added while the server sits empty.
-- It is moved to spectator and kept there. Attempts to assign it to a playing team are redirected
-  back to spectator.
-- It is marked as unkickable, otherwise the `bot_quota` manager removes it within a few ticks.
-- Its controller and pawn are adjusted so the scoreboard does not mark it as a bot.
-
-The bot occupies one player slot. On a server that runs at its player limit, account for that.
-
 ## Limitations
 
 - **One sound at a time, server-wide.** Concurrent playback and mixing are out of scope; use the
@@ -90,48 +71,11 @@ The bot occupies one player slot. On a server that runs at its player limit, acc
   `PlayOptions.DownloadFirst` to fetch the source first and get all three back, at the cost of
   waiting for the download before anything plays.
 
-## Commands
-
-The library itself registers no commands — it is driven entirely through its API. `TnmsSoundPlayerTest`
-is a separate, optional module that exercises the API by hand; load it only while developing. Type its
-commands in chat with `!`, or in console with the `ms_` prefix.
-
-| Command | Description |
-|---|---|
-| `sp_url <url> [volume]` | Play a URL, crediting the requester in the speaker name |
-| `sp_dlurl <url> [volume]` | Same, but downloaded first, so it can seek |
-| `sp_file <path> [volume]` | Play a local file — the seekable kind of source |
-| `sp_seek [seconds]` | Seek the current playback, or print its seekable range |
-| `sp_meta <url>` | Fetch metadata without playing; the result goes to the server console |
-| `sp_stop` | Stop whatever is playing |
-| `sp_session <a\|b>` | Switch which of two sessions the commands drive, standing in for two plugins |
-| `sp_stopsession` | Stop only this session's playbacks — the path a plugin uses |
-| `sp_stopall` | Stop every session's playbacks — the administrative path |
-| `sp_hear <on\|off>` | Toggle whether you hear this session |
-| `sp_vol <0.0-4.0>` | Your volume multiplier for this session |
-| `sp_status` | Tool availability, speaker identity, current playback and queue |
-| `sp_spk_name [name]` | Show or set the resting speaker name |
-| `sp_spk_steam [steamid64]` | Show or set the SteamID64 the speaker masquerades as |
-
-## Build
-
-```
-dotnet build TnmsSoundPlayer/TnmsSoundPlayer.csproj
-```
-
-With the `MOD_SHARP_DIR` environment variable set, the build copies the module to
-`%MOD_SHARP_DIR%\modules\TnmsSoundPlayer\reload\` for hot reload, and the shared assembly to
-`%MOD_SHARP_DIR%\shared\TnmsSoundPlayer.Shared\`.
-
 ## Documentation
 
 | Category | Links |
 |---|---|
 | API | [Getting Started](docs/en/development/USING_SOUNDPLAYER_API.md) / [Playback](docs/en/development/api/playback.md) / [Audio Sources](docs/en/development/api/sources.md) |
-
-## For Plugin Developers
-
-See [Using the TnmsSoundPlayer API](docs/en/development/USING_SOUNDPLAYER_API.md) for details.
 
 ## License
 
