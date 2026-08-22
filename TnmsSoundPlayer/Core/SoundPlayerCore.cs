@@ -98,6 +98,41 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
     private SoundPlayback? _current;
     private long _nextPlaybackId;
 
+    /// <summary>
+    /// Highest section number sent before the counter starts over.
+    /// <para>
+    /// The field on the wire is a uint32, but this stops at int.MaxValue: a client that reads it
+    /// into a signed int would see everything above that as negative, which is the one thing this
+    /// counter must never do. Two other reasons to name a ceiling rather than let the type wrap —
+    /// the build has CheckForOverflowUnderflow on, so unchecked rollover would throw instead, and a
+    /// bound that is written down can be reasoned about.
+    /// </para>
+    /// <para>
+    /// One section per 20 ms frame puts the wrap about 497 days of *continuous* audio away, and the
+    /// counter only advances while something is actually playing. The wrap is the only moment the
+    /// number goes backwards, so it has to stay far out of reach — see <see cref="_voiceSection"/>.
+    /// </para>
+    /// </summary>
+    private const uint MaxVoiceSection = int.MaxValue;
+
+    /// <summary>
+    /// Section number stamped on every voice packet, counted per speaker rather than per playback,
+    /// and increasing for as long as the server is up.
+    /// <para>
+    /// The client tracks this per talker to order one run of voice, and our speaker's identity — the
+    /// entity index or player slot, plus the xuid — is the same for every playback. Counting it per
+    /// playback made the number jump backwards whenever one playback followed another, and the
+    /// client discarded the newcomer as stale until its own state timed out. Back-to-back playbacks
+    /// therefore came out audible, silent, audible, silent: the silence of the dropped one was what
+    /// let the client accept the one after it (reported 2026-08-22 on a run of short TTS lines).
+    /// </para>
+    /// <para>
+    /// So: never reset it per playback. It cycles only at <see cref="MaxVoiceSection"/>, which is
+    /// deliberately far enough away that no session reaches it.
+    /// </para>
+    /// </summary>
+    private uint _voiceSection;
+
     public SoundPlayerCore(ILogger logger, IModSharp modSharp, IClientManager clients, ToolManager tools,
         IAudioFileService fileService, INetworkAudioService networkService)
     {
@@ -413,7 +448,9 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
 
     private void SendChunk(SoundPlayback playback, EncodedChunk chunk)
     {
-        playback.Section++;
+        // Explicit rather than letting the type roll over: CheckForOverflowUnderflow is on, so an
+        // unchecked wrap would throw in the middle of the pump.
+        _voiceSection = _voiceSection >= MaxVoiceSection ? 1 : _voiceSection + 1;
 
         // Hearing and volume are the owning session's, so muting one plugin never silences another.
         var session = SessionOf(playback);
@@ -485,7 +522,7 @@ internal sealed class SoundPlayerCore : ITnmsSoundPlayer, IClientListener
         {
             Format = VoiceDataFormat_t.VoicedataFormatOpus,
             SampleRate = PipelineFormat.SampleRate,
-            SectionNumber = playback.Section,
+            SectionNumber = _voiceSection,
             NumPackets = packet.NumPackets,
             SequenceBytes = 0,
             VoiceLevel = 0f,

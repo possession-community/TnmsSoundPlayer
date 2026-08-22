@@ -45,8 +45,9 @@ internal sealed class SoundPlayback : ISoundPlayback
     internal IPcmAudioStream? Stream;
     internal Task? WorkerTask;
 
-    // Pump-owned state.
-    internal uint Section;
+    // Pump-owned state. The voice section number is deliberately not here: it belongs to the
+    // speaker, which outlives any one playback, and restarting it per playback made the client
+    // drop whichever playback followed another. See SoundPlayerCore._voiceSection.
     internal bool StartedFired;
 
     /// <summary>Slot snapshot for <see cref="SoundRecipients.SnapshotRecipients"/>, captured at Play time.</summary>
